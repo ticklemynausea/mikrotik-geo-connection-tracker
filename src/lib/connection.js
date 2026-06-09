@@ -71,7 +71,12 @@ export function classify(conn) {
     return { direction: 'incoming', remote: src, local: rSrc }
   }
   if (!srcPriv && !dstPriv) return { direction: 'transit', remote: dst, local: src }
-  return null // both private — LAN traffic, skip
+  // Both endpoints private — LAN-to-LAN. Key the group by the initiator (src)
+  // so each LAN device that started at least one local flow gets one entry,
+  // with the destination going into the host's items as `local`. No public IP
+  // means no map marker; the LAN section in the sidebar is the only surface.
+  if (srcPriv && dstPriv) return { direction: 'lan', remote: src, local: dst }
+  return null
 }
 
 export const DIRECTION_COLOR = {
@@ -79,6 +84,7 @@ export const DIRECTION_COLOR = {
   incoming: '#ff7a7a', // red
   mixed: '#ffc14e',    // amber, when an IP sees both
   transit: '#a07bff',  // purple
+  lan: '#6ad48a',      // green — sidebar-only, no map marker
 }
 
 // A coarse identifier for "what state is this flow in" — the unit of the

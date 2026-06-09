@@ -13,11 +13,15 @@
   import { DIRECTION_COLOR, STATE_ORDER, stateLabel } from './connection.js'
   import { lookupSync } from './geoip.js'
 
+  // remoteLabel / localLabel rename the two sub-lists for the LAN section,
+  // where "remote" and "local" don't make sense (both endpoints are LAN).
+  // We list LAN initiators (conntrack src) and the LAN targets they reached.
   const SECTIONS = [
-    { key: 'incoming', label: 'Incoming' },
-    { key: 'outgoing', label: 'Outgoing' },
-    { key: 'mixed', label: 'Mixed' },
-    { key: 'transit', label: 'Transit' },
+    { key: 'incoming', label: 'Incoming', remoteLabel: 'Remote', localLabel: 'Local' },
+    { key: 'outgoing', label: 'Outgoing', remoteLabel: 'Remote', localLabel: 'Local' },
+    { key: 'mixed', label: 'Mixed', remoteLabel: 'Remote', localLabel: 'Local' },
+    { key: 'transit', label: 'Transit', remoteLabel: 'Remote', localLabel: 'Local' },
+    { key: 'lan', label: 'LAN', remoteLabel: 'Initiator', localLabel: 'Target' },
   ]
 
   let collapsed = $state({})
@@ -80,6 +84,7 @@
       outgoing: { remote: new Map(), local: new Map() },
       mixed: { remote: new Map(), local: new Map() },
       transit: { remote: new Map(), local: new Map() },
+      lan: { remote: new Map(), local: new Map() },
     }
 
     for (const entry of $groups.values()) {
@@ -105,6 +110,7 @@
       outgoing: { remote: toList(sections.outgoing.remote), local: toList(sections.outgoing.local) },
       mixed: { remote: toList(sections.mixed.remote), local: toList(sections.mixed.local) },
       transit: { remote: toList(sections.transit.remote), local: toList(sections.transit.local) },
+      lan: { remote: toList(sections.lan.remote), local: toList(sections.lan.local) },
     }
   })
 
@@ -194,7 +200,7 @@
         {#if total === 0}
           <p class="empty">no hosts</p>
         {:else}
-          {#each [{ kind: 'remote', label: 'Remote', list: sub.remote }, { kind: 'local', label: 'Local', list: sub.local }] as group (group.kind)}
+          {#each [{ kind: 'remote', label: s.remoteLabel, list: sub.remote }, { kind: 'local', label: s.localLabel, list: sub.local }] as group (group.kind)}
             {#if group.list.length > 0}
               {@const state = bulkState(s.key, group.list, $hiddenScopes)}
               {@const isSubCollapsed = !!subCollapsed[`${s.key}:${group.kind}`]}
@@ -227,7 +233,7 @@
               {#if !isSubCollapsed}
                 <ul>
                   {#each group.list as e (e.ip)}
-                    {@const cc = group.kind === 'remote' ? countryFor(e.ip) : ''}
+                    {@const cc = group.kind === 'remote' && s.key !== 'lan' ? countryFor(e.ip) : ''}
                     {@const hidden = isHiddenScope($hiddenScopes, s.key, e.ip)}
                     <li class:dim={hidden}>
                       <label>

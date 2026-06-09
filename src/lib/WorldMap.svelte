@@ -94,6 +94,10 @@
     if (!map) return
 
     for (const [ip, entry] of groupsMap) {
+      // LAN entries have only private IPs — no geoip record exists, and the
+      // host belongs to the sidebar-only LAN section. Skip before paying for
+      // a lookup (and so we don't churn the rDNS cache on RFC1918 IPs).
+      if (entry.section === 'lan') continue
       const existing = markers.get(ip)
       const sig = signatureFor(entry)
       if (existing && existing.sig === sig) continue
