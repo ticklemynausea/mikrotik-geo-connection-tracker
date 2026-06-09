@@ -26,20 +26,38 @@ export const groups = derived(connections, ($conns) => {
   return m
 })
 
-// Set<ip> — hosts the user has hidden via sidebar checkboxes. May be either
-// remote (public) or local (LAN) IPs. A connection is "visible" iff neither
-// of its endpoints is in this set.
-export const hiddenHosts = writable(new Set())
+// Set<"direction:ip"> — direction ∈ {incoming, outgoing, mixed, transit}.
+// Each entry hides every item whose direction matches AND that touches the IP
+// on either side. The MIXED scope additionally hides incoming/outgoing items
+// for the IP — unchecking under MIXED takes the address out of the
+// mixed-view, which functionally means "drop its incoming and outgoing
+// items in one click."
+export const hiddenScopes = writable(new Set())
 
-// Same shape as `groups` but with items filtered by hiddenHosts (either side).
-// Entries with no visible items are dropped; directions and section are
-// recomputed from the surviving items so colour follows visible state.
-export const visibleGroups = derived([groups, hiddenHosts], ([$groups, $hidden]) => {
+function scopeKey(direction, ip) {
+  return `${direction}:${ip}`
+}
+
+function itemHidden(item, hidden) {
+  const dir = item.direction
+  const rIp = item.remote.ip
+  const lIp = item.local.ip
+  if (rIp && hidden.has(scopeKey(dir, rIp))) return true
+  if (lIp && hidden.has(scopeKey(dir, lIp))) return true
+  if (dir === 'incoming' || dir === 'outgoing') {
+    if (rIp && hidden.has(scopeKey('mixed', rIp))) return true
+    if (lIp && hidden.has(scopeKey('mixed', lIp))) return true
+  }
+  return false
+}
+
+// Same shape as `groups` but with items dropped according to hiddenScopes.
+// Entries with no surviving items are removed; directions and section are
+// recomputed from the survivors so marker colour follows visible state.
+export const visibleGroups = derived([groups, hiddenScopes], ([$groups, $hidden]) => {
   const out = new Map()
   for (const [ip, entry] of $groups) {
-    const items = entry.items.filter(
-      (it) => !$hidden.has(it.remote.ip) && !$hidden.has(it.local.ip)
-    )
+    const items = entry.items.filter((it) => !itemHidden(it, $hidden))
     if (items.length === 0) continue
     const directions = new Set(items.map((it) => it.direction))
     const section = directions.size > 1 ? 'mixed' : [...directions][0]
@@ -48,21 +66,27 @@ export const visibleGroups = derived([groups, hiddenHosts], ([$groups, $hidden])
   return out
 })
 
-export function toggleHost(ip) {
-  hiddenHosts.update((s) => {
+export function isHiddenScope(hidden, direction, ip) {
+  return hidden.has(scopeKey(direction, ip))
+}
+
+export function toggleScope(direction, ip) {
+  hiddenScopes.update((s) => {
     const next = new Set(s)
-    if (next.has(ip)) next.delete(ip)
-    else next.add(ip)
+    const k = scopeKey(direction, ip)
+    if (next.has(k)) next.delete(k)
+    else next.add(k)
     return next
   })
 }
 
-export function setSectionVisibility(ips, visible) {
-  hiddenHosts.update((s) => {
+export function setScopeVisibility(direction, ips, visible) {
+  hiddenScopes.update((s) => {
     const next = new Set(s)
     for (const ip of ips) {
-      if (visible) next.delete(ip)
-      else next.add(ip)
+      const k = scopeKey(direction, ip)
+      if (visible) next.delete(k)
+      else next.add(k)
     }
     return next
   })

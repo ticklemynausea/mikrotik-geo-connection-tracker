@@ -1,5 +1,5 @@
 <script>
-  import { groups, hiddenHosts, toggleHost, setSectionVisibility } from './groups.js'
+  import { groups, hiddenScopes, toggleScope, setScopeVisibility, isHiddenScope } from './groups.js'
   import { DIRECTION_COLOR } from './connection.js'
   import { lookupSync } from './geoip.js'
 
@@ -80,10 +80,10 @@
     return g?.record?.country?.iso_code ?? ''
   }
 
-  function bulkState(list, hidden) {
+  function bulkState(direction, list, hidden) {
     if (list.length === 0) return 'empty'
     let h = 0
-    for (const e of list) if (hidden.has(e.ip)) h++
+    for (const e of list) if (isHiddenScope(hidden, direction, e.ip)) h++
     if (h === 0) return 'all'
     if (h === list.length) return 'none'
     return 'partial'
@@ -115,7 +115,7 @@
         {:else}
           {#each [{ kind: 'remote', label: 'Remote', list: sub.remote }, { kind: 'local', label: 'Local', list: sub.local }] as group (group.kind)}
             {#if group.list.length > 0}
-              {@const state = bulkState(group.list, $hiddenHosts)}
+              {@const state = bulkState(s.key, group.list, $hiddenScopes)}
               {@const isSubCollapsed = !!subCollapsed[`${s.key}:${group.kind}`]}
               <div class="sub-head">
                 <button
@@ -132,14 +132,14 @@
                   class="bulk"
                   class:active={state === 'all'}
                   disabled={state === 'all'}
-                  onclick={() => setSectionVisibility(group.list.map((e) => e.ip), true)}
+                  onclick={() => setScopeVisibility(s.key, group.list.map((e) => e.ip), true)}
                   title="show all"
                 >all</button>
                 <button
                   class="bulk"
                   class:active={state === 'none'}
                   disabled={state === 'none'}
-                  onclick={() => setSectionVisibility(group.list.map((e) => e.ip), false)}
+                  onclick={() => setScopeVisibility(s.key, group.list.map((e) => e.ip), false)}
                   title="hide all"
                 >none</button>
               </div>
@@ -147,10 +147,10 @@
                 <ul>
                   {#each group.list as e (e.ip)}
                     {@const cc = group.kind === 'remote' ? countryFor(e.ip) : ''}
-                    {@const hidden = $hiddenHosts.has(e.ip)}
+                    {@const hidden = isHiddenScope($hiddenScopes, s.key, e.ip)}
                     <li class:dim={hidden}>
                       <label>
-                        <input type="checkbox" checked={!hidden} onchange={() => toggleHost(e.ip)} />
+                        <input type="checkbox" checked={!hidden} onchange={() => toggleScope(s.key, e.ip)} />
                         <span class="ip">{e.ip}</span>
                         {#if cc}<span class="cc">{cc}</span>{/if}
                         <span class="n">{e.count}</span>
