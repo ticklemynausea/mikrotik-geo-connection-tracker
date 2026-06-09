@@ -4,6 +4,7 @@
   import { lookup, lookupSync } from './geoip.js'
   import { DIRECTION_COLOR } from './connection.js'
   import { groups, hiddenHosts } from './groups.js'
+  import { getCachedRdns, reverseLookup } from './rdns.js'
 
   let mapEl
   let map
@@ -51,8 +52,15 @@
     return port ? `${ip}:${port}` : ip
   }
 
+  function rdnsLabel(ip) {
+    const r = getCachedRdns(ip)
+    if (r === undefined) return '…'
+    return r ?? '(no PTR record)'
+  }
+
   function popupHtml(remoteIp, entry, geo) {
     const place = [geo?.record?.city?.names?.en, geo?.record?.country?.names?.en].filter(Boolean).join(', ')
+    const rdns = rdnsLabel(remoteIp)
     const rows = entry.items.slice(0, 20).map((it) => {
       const local = fmtAddr(it.local)
       const remote = fmtAddr(it.remote)
@@ -72,6 +80,7 @@
     return `
       <div class="pop">
         <div class="pop-head"><strong>${escapeHtml(remoteIp)}</strong>${place ? ` · ${escapeHtml(place)}` : ''}</div>
+        <div class="pop-rdns">rDNS: <span class="rdns-val">${escapeHtml(rdns)}</span></div>
         <div class="pop-count">${entry.items.length} connection${entry.items.length === 1 ? '' : 's'}</div>
         ${rows}
         ${more}
@@ -123,6 +132,17 @@
         })
           .bindPopup(html, { maxWidth: 360, maxHeight: 320 })
           .addTo(map)
+        // Lazy PTR lookup on first popup open. Result is cached, so future
+        // popupHtml() rebuilds will inline the value; here we patch the DOM
+        // of the currently-open popup directly.
+        marker.on('popupopen', () => {
+          if (getCachedRdns(ip) !== undefined) return
+          reverseLookup(ip).then((name) => {
+            const el = marker.getPopup()?.getElement()
+            const span = el?.querySelector('.rdns-val')
+            if (span) span.textContent = name ?? '(no PTR record)'
+          })
+        })
         markers.set(ip, { marker, sig })
       }
     }
@@ -149,6 +169,8 @@
   }
   :global(.pop) { font: 12px/1.4 system-ui, sans-serif; }
   :global(.pop-head) { font-size: 13px; margin-bottom: 2px; }
+  :global(.pop-rdns) { color: #555; font-size: 11px; margin: 1px 0 4px; }
+  :global(.pop-rdns .rdns-val) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #333; word-break: break-all; }
   :global(.pop-count) { color: #666; margin-bottom: 6px; font-size: 11px; }
   :global(.pop-row) { padding: 3px 0; border-top: 1px solid #eee; }
   :global(.pop-row:first-of-type) { border-top: none; }
