@@ -1,6 +1,16 @@
 <script>
-  import { groups, hiddenScopes, toggleScope, setScopeVisibility, isHiddenScope } from './groups.js'
-  import { DIRECTION_COLOR } from './connection.js'
+  import {
+    groups,
+    hiddenScopes,
+    hiddenStates,
+    stateCounts,
+    toggleScope,
+    setScopeVisibility,
+    isHiddenScope,
+    toggleState,
+    setStateVisibility,
+  } from './groups.js'
+  import { DIRECTION_COLOR, STATE_ORDER, stateLabel } from './connection.js'
   import { lookupSync } from './geoip.js'
 
   const SECTIONS = [
@@ -12,6 +22,7 @@
 
   let collapsed = $state({})
   let subCollapsed = $state({})
+  let statesCollapsed = $state(false)
 
   function toggleSection(key) {
     collapsed[key] = !collapsed[key]
@@ -21,6 +32,39 @@
     const k = `${sectionKey}:${kind}`
     subCollapsed[k] = !subCollapsed[k]
   }
+
+  // States currently present in conntrack, ordered by STATE_ORDER (with
+  // unknown keys appended alphabetically). We only render rows that have at
+  // least one flow OR are currently hidden — keeping a hidden-with-zero row
+  // visible means the user can still un-hide it after traffic returns.
+  const stateRows = $derived.by(() => {
+    const counts = $stateCounts
+    const keys = new Set(counts.keys())
+    for (const k of $hiddenStates) keys.add(k)
+    const order = new Map(STATE_ORDER.map((k, i) => [k, i]))
+    return [...keys]
+      .sort((a, b) => {
+        const ai = order.get(a)
+        const bi = order.get(b)
+        if (ai != null && bi != null) return ai - bi
+        if (ai != null) return -1
+        if (bi != null) return 1
+        return a.localeCompare(b)
+      })
+      .map((key) => ({ key, count: counts.get(key) ?? 0 }))
+  })
+
+  function stateBulkState(rows, hidden) {
+    if (rows.length === 0) return 'empty'
+    let h = 0
+    for (const r of rows) if (hidden.has(r.key)) h++
+    if (h === 0) return 'all'
+    if (h === rows.length) return 'none'
+    return 'partial'
+  }
+
+  const stateBulk = $derived(stateBulkState(stateRows, $hiddenStates))
+  const totalFlows = $derived(stateRows.reduce((n, r) => n + r.count, 0))
 
   // Partition hosts (= remote-IP-keyed entries from `groups`) by their fixed
   // section. Each remote appears in exactly one section: incoming-only,
@@ -41,8 +85,14 @@
     for (const entry of $groups.values()) {
       const slot = sections[entry.section]
       if (!slot) continue
-      slot.remote.set(entry.ip, entry.items.length)
-      for (const it of entry.items) {
+      // Drop items whose state is hidden so directional counts and lists
+      // match what's actually on the map. A host whose only flows are all
+      // state-hidden disappears from the sidebar entirely (its marker is
+      // already gone from visibleGroups).
+      const items = entry.items.filter((it) => !$hiddenStates.has(it.state))
+      if (items.length === 0) continue
+      slot.remote.set(entry.ip, items.length)
+      for (const it of items) {
         if (it.local.ip) bump(slot.local, it.local.ip)
       }
     }
@@ -74,6 +124,54 @@
 </script>
 
 <aside>
+  <section>
+    <header class="states-head">
+      <button
+        class="head-btn"
+        onclick={() => (statesCollapsed = !statesCollapsed)}
+        aria-expanded={!statesCollapsed}
+        title={statesCollapsed ? 'expand' : 'collapse'}
+      >
+        <span class="chevron" class:open={!statesCollapsed}>▸</span>
+        <span class="title">States</span>
+        <span class="count">{totalFlows}</span>
+      </button>
+      {#if stateRows.length > 0}
+        <button
+          class="bulk"
+          class:active={stateBulk === 'all'}
+          disabled={stateBulk === 'all'}
+          onclick={() => setStateVisibility(stateRows.map((r) => r.key), true)}
+          title="show all states"
+        >all</button>
+        <button
+          class="bulk"
+          class:active={stateBulk === 'none'}
+          disabled={stateBulk === 'none'}
+          onclick={() => setStateVisibility(stateRows.map((r) => r.key), false)}
+          title="hide all states"
+        >none</button>
+      {/if}
+    </header>
+    {#if !statesCollapsed}
+      {#if stateRows.length === 0}
+        <p class="empty">no flows</p>
+      {:else}
+        <ul>
+          {#each stateRows as r (r.key)}
+            {@const hidden = $hiddenStates.has(r.key)}
+            <li class:dim={hidden}>
+              <label>
+                <input type="checkbox" checked={!hidden} onchange={() => toggleState(r.key)} />
+                <span class="ip">{stateLabel(r.key)}</span>
+                <span class="n">{r.count}</span>
+              </label>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+  </section>
   {#each SECTIONS as s (s.key)}
     {@const sub = bySection[s.key]}
     {@const isCollapsed = !!collapsed[s.key]}
@@ -180,6 +278,7 @@
     font-weight: 600;
     color: #c8cfd9;
   }
+  .states-head { border-bottom: 1px solid #1c2230; }
   .head-btn {
     flex: 1;
     display: flex;

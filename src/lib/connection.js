@@ -80,3 +80,46 @@ export const DIRECTION_COLOR = {
   mixed: '#ffc14e',    // amber, when an IP sees both
   transit: '#a07bff',  // purple
 }
+
+// A coarse identifier for "what state is this flow in" — the unit of the
+// State filter in the sidebar. For TCP we expose the conntrack tcp-state
+// (`established`, `time-wait`, …); for everything else we bucket by protocol
+// (`udp`, `icmp`, …) because conntrack reports no per-flow state there.
+// Keys are namespaced as `tcp:<state>` vs bare protocol so the two domains
+// never collide (e.g. a hypothetical `udp` tcp-state can't be confused with
+// "this is a UDP flow").
+export function stateKey(conn) {
+  const proto = (conn.protocol ?? '').toLowerCase()
+  if (proto === 'tcp') {
+    const s = conn['tcp-state']
+    return s ? `tcp:${s}` : 'tcp:none'
+  }
+  return proto || 'other'
+}
+
+// Display order for state filters in the sidebar. States not in this list
+// (rare protocols, unknown tcp-states) sort alphabetically at the end.
+export const STATE_ORDER = [
+  'tcp:established',
+  'tcp:syn-sent',
+  'tcp:syn-received',
+  'tcp:time-wait',
+  'tcp:close-wait',
+  'tcp:fin-wait',
+  'tcp:last-ack',
+  'tcp:close',
+  'tcp:none',
+  'udp',
+  'icmp',
+  'icmpv6',
+  'gre',
+  'esp',
+  'ah',
+  'sctp',
+  'other',
+]
+
+export function stateLabel(key) {
+  if (key.startsWith('tcp:')) return `tcp · ${key.slice(4)}`
+  return key
+}
