@@ -22,56 +22,39 @@
     subCollapsed[k] = !subCollapsed[k]
   }
 
-  // Tally connections by (direction, role, ip). A host appears in EVERY section
-  // it participates in — so a LAN box that has both outbound and inbound shows
-  // up under INCOMING ▸ Local AND OUTGOING ▸ Local (each with its own count).
-  // MIXED is then a derived intersection: hosts present in BOTH incoming and
-  // outgoing (in either role), useful as a "find chatty multi-direction hosts"
-  // filter; the same hosts will also appear in their per-direction sections.
+  // Partition hosts (= remote-IP-keyed entries from `groups`) by their fixed
+  // section. Each remote appears in exactly one section: incoming-only,
+  // outgoing-only, mixed (does both), or transit. Within a section's Local
+  // sub-list we list the local IPs that show up in items belonging to that
+  // section's remotes — so a LAN box that talks to both an incoming-only
+  // remote and a mixed remote shows up under INCOMING ▸ Local AND
+  // MIXED ▸ Local independently, each scoped to its own remote-class slice.
   const bySection = $derived.by(() => {
     const bump = (m, ip) => m.set(ip, (m.get(ip) ?? 0) + 1)
-    const dirs = ['incoming', 'outgoing', 'transit']
-    const counts = {}
-    for (const d of dirs) counts[d] = { remote: new Map(), local: new Map() }
-
-    for (const entry of $groups.values()) {
-      for (const it of entry.items) {
-        const slot = counts[it.direction]
-        if (!slot) continue
-        if (it.remote.ip) bump(slot.remote, it.remote.ip)
-        if (it.local.ip) bump(slot.local, it.local.ip)
-      }
+    const sections = {
+      incoming: { remote: new Map(), local: new Map() },
+      outgoing: { remote: new Map(), local: new Map() },
+      mixed: { remote: new Map(), local: new Map() },
+      transit: { remote: new Map(), local: new Map() },
     }
 
-    // Hosts that participate in BOTH incoming and outgoing (in either role).
-    const incomingIps = new Set([
-      ...counts.incoming.remote.keys(),
-      ...counts.incoming.local.keys(),
-    ])
-    const outgoingIps = new Set([
-      ...counts.outgoing.remote.keys(),
-      ...counts.outgoing.local.keys(),
-    ])
-    const mixedIps = new Set([...incomingIps].filter((ip) => outgoingIps.has(ip)))
-
-    const mixedSlot = { remote: new Map(), local: new Map() }
-    for (const ip of mixedIps) {
-      const r =
-        (counts.incoming.remote.get(ip) ?? 0) + (counts.outgoing.remote.get(ip) ?? 0)
-      const l =
-        (counts.incoming.local.get(ip) ?? 0) + (counts.outgoing.local.get(ip) ?? 0)
-      if (r > 0) mixedSlot.remote.set(ip, r)
-      if (l > 0) mixedSlot.local.set(ip, l)
+    for (const entry of $groups.values()) {
+      const slot = sections[entry.section]
+      if (!slot) continue
+      slot.remote.set(entry.ip, entry.items.length)
+      for (const it of entry.items) {
+        if (it.local.ip) bump(slot.local, it.local.ip)
+      }
     }
 
     const toList = (m) =>
       [...m].map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count)
 
     return {
-      incoming: { remote: toList(counts.incoming.remote), local: toList(counts.incoming.local) },
-      outgoing: { remote: toList(counts.outgoing.remote), local: toList(counts.outgoing.local) },
-      mixed: { remote: toList(mixedSlot.remote), local: toList(mixedSlot.local) },
-      transit: { remote: toList(counts.transit.remote), local: toList(counts.transit.local) },
+      incoming: { remote: toList(sections.incoming.remote), local: toList(sections.incoming.local) },
+      outgoing: { remote: toList(sections.outgoing.remote), local: toList(sections.outgoing.local) },
+      mixed: { remote: toList(sections.mixed.remote), local: toList(sections.mixed.local) },
+      transit: { remote: toList(sections.transit.remote), local: toList(sections.transit.local) },
     }
   })
 

@@ -32,12 +32,6 @@
     }[c]))
   }
 
-  function colorFor(directions) {
-    if (directions.size > 1) return DIRECTION_COLOR.mixed
-    const [only] = directions
-    return DIRECTION_COLOR[only] ?? '#888'
-  }
-
   function fmtBytes(n) {
     const v = Number(n)
     if (!Number.isFinite(v) || v === 0) return '0'
@@ -108,7 +102,7 @@
       if (geo === undefined) geo = await lookup(ip).catch(() => null)
       if (!geo) continue
 
-      const color = colorFor(entry.directions)
+      const color = DIRECTION_COLOR[entry.section] ?? '#888'
       const html = popupHtml(ip, entry, geo)
       if (existing) {
         existing.marker.setStyle({ color, fillColor: color })
