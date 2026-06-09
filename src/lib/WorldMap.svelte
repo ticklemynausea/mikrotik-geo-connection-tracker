@@ -3,7 +3,7 @@
   import L from 'leaflet'
   import { lookup, lookupSync } from './geoip.js'
   import { DIRECTION_COLOR } from './connection.js'
-  import { groups, hiddenHosts } from './groups.js'
+  import { visibleGroups } from './groups.js'
   import { getCachedRdns, reverseLookup } from './rdns.js'
 
   let mapEl
@@ -96,18 +96,10 @@
     return `${dirs}::${ids}`
   }
 
-  async function syncMarkers(groupsMap, hidden) {
+  async function syncMarkers(groupsMap) {
     if (!map) return
 
     for (const [ip, entry] of groupsMap) {
-      if (hidden.has(ip)) {
-        const existing = markers.get(ip)
-        if (existing) {
-          existing.marker.remove()
-          markers.delete(ip)
-        }
-        continue
-      }
       const existing = markers.get(ip)
       const sig = signatureFor(entry)
       if (existing && existing.sig === sig) continue
@@ -156,7 +148,7 @@
   }
 
   $effect(() => {
-    syncMarkers($groups, $hiddenHosts)
+    syncMarkers($visibleGroups)
   })
 </script>
 

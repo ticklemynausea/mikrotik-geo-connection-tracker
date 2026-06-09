@@ -11,19 +11,68 @@
   ]
 
   let collapsed = $state({})
+  let subCollapsed = $state({})
 
   function toggleSection(key) {
     collapsed[key] = !collapsed[key]
   }
 
-  let bySection = $derived.by(() => {
-    const out = { incoming: [], outgoing: [], mixed: [], transit: [] }
-    for (const e of $groups.values()) {
-      const arr = out[e.section]
-      if (arr) arr.push(e)
+  function toggleSub(sectionKey, kind) {
+    const k = `${sectionKey}:${kind}`
+    subCollapsed[k] = !subCollapsed[k]
+  }
+
+  // Tally connections by (direction, role, ip). A host appears in EVERY section
+  // it participates in — so a LAN box that has both outbound and inbound shows
+  // up under INCOMING ▸ Local AND OUTGOING ▸ Local (each with its own count).
+  // MIXED is then a derived intersection: hosts present in BOTH incoming and
+  // outgoing (in either role), useful as a "find chatty multi-direction hosts"
+  // filter; the same hosts will also appear in their per-direction sections.
+  const bySection = $derived.by(() => {
+    const bump = (m, ip) => m.set(ip, (m.get(ip) ?? 0) + 1)
+    const dirs = ['incoming', 'outgoing', 'transit']
+    const counts = {}
+    for (const d of dirs) counts[d] = { remote: new Map(), local: new Map() }
+
+    for (const entry of $groups.values()) {
+      for (const it of entry.items) {
+        const slot = counts[it.direction]
+        if (!slot) continue
+        if (it.remote.ip) bump(slot.remote, it.remote.ip)
+        if (it.local.ip) bump(slot.local, it.local.ip)
+      }
     }
-    for (const arr of Object.values(out)) arr.sort((a, b) => b.items.length - a.items.length)
-    return out
+
+    // Hosts that participate in BOTH incoming and outgoing (in either role).
+    const incomingIps = new Set([
+      ...counts.incoming.remote.keys(),
+      ...counts.incoming.local.keys(),
+    ])
+    const outgoingIps = new Set([
+      ...counts.outgoing.remote.keys(),
+      ...counts.outgoing.local.keys(),
+    ])
+    const mixedIps = new Set([...incomingIps].filter((ip) => outgoingIps.has(ip)))
+
+    const mixedSlot = { remote: new Map(), local: new Map() }
+    for (const ip of mixedIps) {
+      const r =
+        (counts.incoming.remote.get(ip) ?? 0) + (counts.outgoing.remote.get(ip) ?? 0)
+      const l =
+        (counts.incoming.local.get(ip) ?? 0) + (counts.outgoing.local.get(ip) ?? 0)
+      if (r > 0) mixedSlot.remote.set(ip, r)
+      if (l > 0) mixedSlot.local.set(ip, l)
+    }
+
+    const toList = (m) =>
+      [...m].map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count)
+
+    return {
+      incoming: { remote: toList(counts.incoming.remote), local: toList(counts.incoming.local) },
+      outgoing: { remote: toList(counts.outgoing.remote), local: toList(counts.outgoing.local) },
+      mixed: { remote: toList(mixedSlot.remote), local: toList(mixedSlot.local) },
+      transit: { remote: toList(counts.transit.remote), local: toList(counts.transit.local) },
+    }
   })
 
   function countryFor(ip) {
@@ -31,8 +80,7 @@
     return g?.record?.country?.iso_code ?? ''
   }
 
-  // Returns 'all' (no hidden), 'none' (all hidden), 'partial', or 'empty'.
-  function sectionState(list, hidden) {
+  function bulkState(list, hidden) {
     if (list.length === 0) return 'empty'
     let h = 0
     for (const e of list) if (hidden.has(e.ip)) h++
@@ -44,8 +92,9 @@
 
 <aside>
   {#each SECTIONS as s (s.key)}
-    {@const list = bySection[s.key]}
+    {@const sub = bySection[s.key]}
     {@const isCollapsed = !!collapsed[s.key]}
+    {@const total = sub.remote.length + sub.local.length}
     <section>
       <header style="border-left-color:{DIRECTION_COLOR[s.key]}">
         <button
@@ -57,44 +106,61 @@
           <span class="chevron" class:open={!isCollapsed}>▸</span>
           <span class="dot" style="background:{DIRECTION_COLOR[s.key]}"></span>
           <span class="title">{s.label}</span>
-          <span class="count">{list.length}</span>
+          <span class="count">{total}</span>
         </button>
-        {#if list.length > 0}
-          {@const state = sectionState(list, $hiddenHosts)}
-          <button
-            class="bulk"
-            class:active={state === 'all'}
-            disabled={state === 'all'}
-            onclick={() => setSectionVisibility(list.map((e) => e.ip), true)}
-            title="show all in section"
-          >all</button>
-          <button
-            class="bulk"
-            class:active={state === 'none'}
-            disabled={state === 'none'}
-            onclick={() => setSectionVisibility(list.map((e) => e.ip), false)}
-            title="hide all in section"
-          >none</button>
-        {/if}
       </header>
       {#if !isCollapsed}
-        {#if list.length > 0}
-          <ul>
-            {#each list as e (e.ip)}
-              {@const cc = countryFor(e.ip)}
-              {@const hidden = $hiddenHosts.has(e.ip)}
-              <li class:dim={hidden}>
-                <label>
-                  <input type="checkbox" checked={!hidden} onchange={() => toggleHost(e.ip)} />
-                  <span class="ip">{e.ip}</span>
-                  {#if cc}<span class="cc">{cc}</span>{/if}
-                  <span class="n">{e.items.length}</span>
-                </label>
-              </li>
-            {/each}
-          </ul>
-        {:else}
+        {#if total === 0}
           <p class="empty">no hosts</p>
+        {:else}
+          {#each [{ kind: 'remote', label: 'Remote', list: sub.remote }, { kind: 'local', label: 'Local', list: sub.local }] as group (group.kind)}
+            {#if group.list.length > 0}
+              {@const state = bulkState(group.list, $hiddenHosts)}
+              {@const isSubCollapsed = !!subCollapsed[`${s.key}:${group.kind}`]}
+              <div class="sub-head">
+                <button
+                  class="sub-toggle"
+                  onclick={() => toggleSub(s.key, group.kind)}
+                  aria-expanded={!isSubCollapsed}
+                  title={isSubCollapsed ? 'expand' : 'collapse'}
+                >
+                  <span class="chevron sub-chevron" class:open={!isSubCollapsed}>▸</span>
+                  <span class="sub-label">{group.label}</span>
+                  <span class="sub-count">{group.list.length}</span>
+                </button>
+                <button
+                  class="bulk"
+                  class:active={state === 'all'}
+                  disabled={state === 'all'}
+                  onclick={() => setSectionVisibility(group.list.map((e) => e.ip), true)}
+                  title="show all"
+                >all</button>
+                <button
+                  class="bulk"
+                  class:active={state === 'none'}
+                  disabled={state === 'none'}
+                  onclick={() => setSectionVisibility(group.list.map((e) => e.ip), false)}
+                  title="hide all"
+                >none</button>
+              </div>
+              {#if !isSubCollapsed}
+                <ul>
+                  {#each group.list as e (e.ip)}
+                    {@const cc = group.kind === 'remote' ? countryFor(e.ip) : ''}
+                    {@const hidden = $hiddenHosts.has(e.ip)}
+                    <li class:dim={hidden}>
+                      <label>
+                        <input type="checkbox" checked={!hidden} onchange={() => toggleHost(e.ip)} />
+                        <span class="ip">{e.ip}</span>
+                        {#if cc}<span class="cc">{cc}</span>{/if}
+                        <span class="n">{e.count}</span>
+                      </label>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            {/if}
+          {/each}
         {/if}
       {/if}
     </section>
@@ -103,6 +169,8 @@
 
 <style>
   aside {
+    --head-h: 32px;
+    --sub-h: 26px;
     width: 320px;
     background: #0c1015;
     border-right: 1px solid #2a313d;
@@ -115,9 +183,10 @@
   section > header {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 2;
+    height: var(--head-h);
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 0.35rem;
     padding-right: 0.7rem;
     background: #161b24;
@@ -133,7 +202,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.45rem 0.7rem;
+    padding: 0 0.7rem;
     background: transparent;
     border: none;
     color: inherit;
@@ -158,10 +227,47 @@
     color: #8a93a3;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    margin-right: 0.25rem;
   }
+
+  .sub-head {
+    position: sticky;
+    top: var(--head-h);
+    z-index: 1;
+    height: var(--sub-h);
+    display: flex;
+    align-items: stretch;
+    gap: 0.35rem;
+    padding-right: 0.7rem;
+    background: #11151c;
+    border-bottom: 1px solid #1c2230;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8a93a3;
+  }
+  .sub-toggle {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.7rem 0 1.6rem;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .sub-toggle:hover { background: #161b24; color: #c8cfd9; }
+  .sub-chevron { font-size: 0.55rem; width: 0.55rem; }
+  .sub-label { flex: 1; }
+  .sub-count { font-variant-numeric: tabular-nums; }
+
   .bulk {
     flex-shrink: 0;
+    align-self: center;
     background: transparent;
     color: #8a93a3;
     border: 1px solid #2a313d;
@@ -180,16 +286,15 @@
     cursor: default;
   }
   .bulk:disabled { cursor: default; }
+
   ul { list-style: none; margin: 0; padding: 0; }
-  li {
-    border-top: 1px solid #14191f;
-  }
+  li { border-top: 1px solid #14191f; }
   li:first-child { border-top: none; }
   li label {
     display: flex;
     align-items: center;
     gap: 0.55rem;
-    padding: 0.35rem 0.7rem;
+    padding: 0.35rem 0.7rem 0.35rem 1.6rem;
     cursor: pointer;
   }
   li label:hover { background: #14191f; }

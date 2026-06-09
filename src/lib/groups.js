@@ -26,8 +26,27 @@ export const groups = derived(connections, ($conns) => {
   return m
 })
 
-// Set<remoteIp> — hosts the user has hidden via sidebar checkboxes.
+// Set<ip> — hosts the user has hidden via sidebar checkboxes. May be either
+// remote (public) or local (LAN) IPs. A connection is "visible" iff neither
+// of its endpoints is in this set.
 export const hiddenHosts = writable(new Set())
+
+// Same shape as `groups` but with items filtered by hiddenHosts (either side).
+// Entries with no visible items are dropped; directions and section are
+// recomputed from the surviving items so colour follows visible state.
+export const visibleGroups = derived([groups, hiddenHosts], ([$groups, $hidden]) => {
+  const out = new Map()
+  for (const [ip, entry] of $groups) {
+    const items = entry.items.filter(
+      (it) => !$hidden.has(it.remote.ip) && !$hidden.has(it.local.ip)
+    )
+    if (items.length === 0) continue
+    const directions = new Set(items.map((it) => it.direction))
+    const section = directions.size > 1 ? 'mixed' : [...directions][0]
+    out.set(ip, { ip, items, directions, section })
+  }
+  return out
+})
 
 export function toggleHost(ip) {
   hiddenHosts.update((s) => {
