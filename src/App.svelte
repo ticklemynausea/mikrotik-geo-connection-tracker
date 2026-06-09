@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import WorldMap from './lib/WorldMap.svelte'
+  import Sidebar from './lib/Sidebar.svelte'
   import { connections, connectionError, startPolling, stopPolling } from './lib/mikrotik.js'
   import { warmup } from './lib/geoip.js'
   import { DIRECTION_COLOR } from './lib/connection.js'
@@ -38,9 +39,12 @@
       {/each}
     </ul>
   </header>
-  <section class="map-wrap">
-    <WorldMap connections={$connections} />
-  </section>
+  <div class="body">
+    <Sidebar />
+    <section class="map-wrap">
+      <WorldMap />
+    </section>
+  </div>
 </main>
 
 <style>
@@ -69,6 +73,12 @@
   .error {
     font-size: 0.85rem;
     color: #ff7a7a;
+  }
+  .body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
   .map-wrap {
     flex: 1;

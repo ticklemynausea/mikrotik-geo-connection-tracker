@@ -2,9 +2,8 @@
   import { onMount, onDestroy } from 'svelte'
   import L from 'leaflet'
   import { lookup, lookupSync } from './geoip.js'
-  import { classify, DIRECTION_COLOR } from './connection.js'
-
-  let { connections = [] } = $props()
+  import { DIRECTION_COLOR } from './connection.js'
+  import { groups, hiddenHosts } from './groups.js'
 
   let mapEl
   let map
@@ -57,7 +56,6 @@
     const rows = entry.items.slice(0, 20).map((it) => {
       const local = fmtAddr(it.local)
       const remote = fmtAddr(it.remote)
-      // Always render as "initiator → target": LAN side for outgoing, public side for incoming.
       const [from, to] = it.direction === 'incoming' ? [remote, local] : [local, remote]
       const proto = escapeHtml(it.conn.protocol ?? '')
       const state = escapeHtml(it.conn['tcp-state'] ?? '')
@@ -67,7 +65,7 @@
       return `
         <div class="pop-row">
           <div class="pop-addr">${dirBadge} <code>${escapeHtml(from)}</code> → <code>${escapeHtml(to)}</code></div>
-          <div class="pop-meta">${proto}${state ? ` · ${state}` : ''} · ↑${orig} ↓${repl}</div>
+          <div class="pop-meta">${proto}${state ? ` · ${escapeHtml(state)}` : ''} · ↑${orig} ↓${repl}</div>
         </div>`
     }).join('')
     const more = entry.items.length > 20 ? `<div class="pop-more">+${entry.items.length - 20} more</div>` : ''
@@ -80,10 +78,6 @@
       </div>`
   }
 
-  // Signature captures everything that affects color or popup content. Byte
-  // counts are intentionally excluded — they tick every poll, and rebuilding
-  // the popup for the (closed) marker every 3 s is most of the steady-state
-  // work. The popup will refresh whenever a connection's id/state set changes.
   function signatureFor(entry) {
     const dirs = [...entry.directions].sort().join(',')
     const ids = entry.items
@@ -93,26 +87,21 @@
     return `${dirs}::${ids}`
   }
 
-  async function syncMarkers(list) {
+  async function syncMarkers(groupsMap, hidden) {
     if (!map) return
-    // Group classified connections by remote IP.
-    const grouped = new Map()
-    for (const conn of list) {
-      const c = classify(conn)
-      if (!c) continue
-      const ip = c.remote.ip
-      if (!ip) continue
-      const item = { conn, direction: c.direction, local: c.local, remote: c.remote }
-      if (!grouped.has(ip)) grouped.set(ip, { directions: new Set(), items: [] })
-      const entry = grouped.get(ip)
-      entry.directions.add(c.direction)
-      entry.items.push(item)
-    }
 
-    for (const [ip, entry] of grouped) {
+    for (const [ip, entry] of groupsMap) {
+      if (hidden.has(ip)) {
+        const existing = markers.get(ip)
+        if (existing) {
+          existing.marker.remove()
+          markers.delete(ip)
+        }
+        continue
+      }
       const existing = markers.get(ip)
       const sig = signatureFor(entry)
-      if (existing && existing.sig === sig) continue // nothing changed; skip lookup + style + popup
+      if (existing && existing.sig === sig) continue
 
       let geo = lookupSync(ip)
       if (geo === undefined) geo = await lookup(ip).catch(() => null)
@@ -139,7 +128,7 @@
     }
 
     for (const [ip, { marker }] of markers) {
-      if (!grouped.has(ip)) {
+      if (!groupsMap.has(ip)) {
         marker.remove()
         markers.delete(ip)
       }
@@ -147,7 +136,7 @@
   }
 
   $effect(() => {
-    syncMarkers(connections)
+    syncMarkers($groups, $hiddenHosts)
   })
 </script>
 
