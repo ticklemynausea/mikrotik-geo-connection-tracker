@@ -3,8 +3,16 @@
   import WorldMap from './lib/WorldMap.svelte'
   import { connections, connectionError, startPolling, stopPolling } from './lib/mikrotik.js'
   import { warmup } from './lib/geoip.js'
+  import { DIRECTION_COLOR } from './lib/connection.js'
 
   let geoStatus = $state('loading geoip db…')
+
+  const legend = [
+    { label: 'outgoing', color: DIRECTION_COLOR.outgoing },
+    { label: 'incoming', color: DIRECTION_COLOR.incoming },
+    { label: 'mixed', color: DIRECTION_COLOR.mixed },
+    { label: 'transit', color: DIRECTION_COLOR.transit },
+  ]
 
   onMount(() => {
     warmup()
@@ -23,6 +31,12 @@
     {#if $connectionError}
       <span class="error">router: {$connectionError}</span>
     {/if}
+    <span class="spacer"></span>
+    <ul class="legend">
+      {#each legend as l}
+        <li><span class="dot" style="background:{l.color}"></span>{l.label}</li>
+      {/each}
+    </ul>
   </header>
   <section class="map-wrap">
     <WorldMap connections={$connections} />
@@ -59,5 +73,22 @@
   .map-wrap {
     flex: 1;
     position: relative;
+  }
+  .spacer { flex: 1; }
+  .legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    gap: 0.9rem;
+    font-size: 0.8rem;
+    opacity: 0.85;
+  }
+  .legend li { display: flex; align-items: center; gap: 0.35rem; }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
   }
 </style>
