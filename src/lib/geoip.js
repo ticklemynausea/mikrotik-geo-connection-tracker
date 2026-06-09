@@ -39,6 +39,13 @@ export async function lookup(ip) {
   return loc
 }
 
+// Synchronous read of the in-memory cache. Returns the cached value (a loc
+// object or null) on hit, or `undefined` if the IP hasn't been resolved yet.
+// Lets the hot path avoid awaiting a resolved Promise once per marker.
+export function lookupSync(ip) {
+  return cache.has(ip) ? cache.get(ip) : undefined
+}
+
 export function warmup() {
   return loadReader()
 }

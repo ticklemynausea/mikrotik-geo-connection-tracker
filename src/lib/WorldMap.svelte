@@ -1,18 +1,21 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import L from 'leaflet'
-  import { lookup } from './geoip.js'
+  import { lookup, lookupSync } from './geoip.js'
   import { classify, DIRECTION_COLOR } from './connection.js'
 
   let { connections = [] } = $props()
 
   let mapEl
   let map
-  // remote ip -> { marker, directions: Set<string>, conns: [] }
+  // remote ip -> { marker, sig }
   const markers = new Map()
 
   onMount(() => {
-    map = L.map(mapEl, { worldCopyJump: true }).setView([20, 0], 2)
+    // preferCanvas: render all circleMarkers into a single <canvas> instead of
+    // one SVG <path> each. Panning/zoom becomes a canvas translate — orders of
+    // magnitude cheaper once there are more than a handful of markers.
+    map = L.map(mapEl, { worldCopyJump: true, preferCanvas: true }).setView([20, 0], 2)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap',
@@ -77,6 +80,19 @@
       </div>`
   }
 
+  // Signature captures everything that affects color or popup content. Byte
+  // counts are intentionally excluded — they tick every poll, and rebuilding
+  // the popup for the (closed) marker every 3 s is most of the steady-state
+  // work. The popup will refresh whenever a connection's id/state set changes.
+  function signatureFor(entry) {
+    const dirs = [...entry.directions].sort().join(',')
+    const ids = entry.items
+      .map((it) => `${it.conn['.id'] ?? ''}|${it.conn['tcp-state'] ?? ''}`)
+      .sort()
+      .join(';')
+    return `${dirs}::${ids}`
+  }
+
   async function syncMarkers(list) {
     if (!map) return
     // Group classified connections by remote IP.
@@ -94,14 +110,20 @@
     }
 
     for (const [ip, entry] of grouped) {
-      const geo = await lookup(ip).catch(() => null)
+      const existing = markers.get(ip)
+      const sig = signatureFor(entry)
+      if (existing && existing.sig === sig) continue // nothing changed; skip lookup + style + popup
+
+      let geo = lookupSync(ip)
+      if (geo === undefined) geo = await lookup(ip).catch(() => null)
       if (!geo) continue
+
       const color = colorFor(entry.directions)
       const html = popupHtml(ip, entry, geo)
-      const existing = markers.get(ip)
       if (existing) {
         existing.marker.setStyle({ color, fillColor: color })
         existing.marker.setPopupContent(html)
+        existing.sig = sig
       } else {
         const marker = L.circleMarker([geo.lat, geo.lon], {
           radius: 5,
@@ -112,7 +134,7 @@
         })
           .bindPopup(html, { maxWidth: 360, maxHeight: 320 })
           .addTo(map)
-        markers.set(ip, { marker })
+        markers.set(ip, { marker, sig })
       }
     }
 
