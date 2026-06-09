@@ -26,9 +26,12 @@
 
 <main>
   <header>
-    <h1>mikrotik internet map</h1>
+    <h1>mikrotik geo connection tracker</h1>
     <span class="status">{geoStatus}</span>
-    <span class="status">{$connections.length} connections</span>
+    <span class="status live" class:stalled={$connectionError}>
+      <span class="live-dot" aria-hidden="true"></span>
+      {$connections.length} connections
+    </span>
     {#if $connectionError}
       <span class="error">router: {$connectionError}</span>
     {/if}
@@ -100,5 +103,61 @@
     height: 9px;
     border-radius: 50%;
     display: inline-block;
+  }
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    opacity: 1;
+  }
+  .live-dot {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #22ff88;
+  }
+  /* Expanding ring — a clean "ping" radiating outward. */
+  .live-dot::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: #22ff88;
+    animation: live-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+    pointer-events: none;
+  }
+  /* Breathing halo — a large blurred disc behind the dot. Animating opacity
+     and scale together makes the green visibly swell and recede each cycle,
+     which is much more legible than a box-shadow ramp. */
+  .live-dot::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(34, 255, 136, 0.9) 0%, rgba(34, 255, 136, 0) 70%);
+    filter: blur(2px);
+    animation: live-halo 1.6s ease-in-out infinite;
+    pointer-events: none;
+    z-index: -1;
+  }
+  .live.stalled .live-dot {
+    background: #ff7a7a;
+  }
+  .live.stalled .live-dot::before,
+  .live.stalled .live-dot::after {
+    display: none;
+  }
+  @keyframes live-ping {
+    0%        { transform: scale(1);   opacity: 0.7; }
+    75%, 100% { transform: scale(1.9); opacity: 0;   }
+  }
+  @keyframes live-halo {
+    0%, 100% { transform: scale(0.7); opacity: 0.3; }
+    50%      { transform: scale(1.1); opacity: 1;   }
   }
 </style>
