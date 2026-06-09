@@ -63,11 +63,15 @@
       const state = escapeHtml(it.conn['tcp-state'] ?? '')
       const orig = fmtBytes(it.conn['orig-bytes'])
       const repl = fmtBytes(it.conn['repl-bytes'])
+      // `timeout` is conntrack's per-flow countdown to expiry (resets on each
+      // observed packet) — high+steady means the flow is active, decreasing
+      // monotonically means it's idle. Not the connection's age.
+      const timeout = escapeHtml(it.conn.timeout ?? '')
       const dirBadge = `<span style="color:${DIRECTION_COLOR[it.direction] ?? '#888'}">●</span>`
       return `
         <div class="pop-row">
           <div class="pop-addr">${dirBadge} <code>${escapeHtml(from)}</code> → <code>${escapeHtml(to)}</code></div>
-          <div class="pop-meta">${proto}${state ? ` · ${escapeHtml(state)}` : ''} · ↑${orig} ↓${repl}</div>
+          <div class="pop-meta">${proto}${state ? ` · ${escapeHtml(state)}` : ''} · ↑${orig} ↓${repl}${timeout ? ` · exp ${timeout}` : ''}</div>
         </div>`
     }).join('')
     const more = entry.items.length > 20 ? `<div class="pop-more">+${entry.items.length - 20} more</div>` : ''
@@ -100,7 +104,13 @@
       if (entry.section === 'lan') continue
       const existing = markers.get(ip)
       const sig = signatureFor(entry)
-      if (existing && existing.sig === sig) continue
+      // `timeout` ticks down every poll, so we need to refresh the popup
+      // content even when nothing in the signature changed — but only if
+      // the popup is actually open. Closed popups can wait for the next
+      // sig-changing event, which keeps the steady-state reconciliation
+      // skip cheap.
+      const popupOpen = existing?.marker.isPopupOpen() ?? false
+      if (existing && existing.sig === sig && !popupOpen) continue
 
       let geo = lookupSync(ip)
       if (geo === undefined) geo = await lookup(ip).catch(() => null)
@@ -109,9 +119,11 @@
       const color = DIRECTION_COLOR[entry.section] ?? '#888'
       const html = popupHtml(ip, entry, geo)
       if (existing) {
-        existing.marker.setStyle({ color, fillColor: color })
+        if (existing.sig !== sig) {
+          existing.marker.setStyle({ color, fillColor: color })
+          existing.sig = sig
+        }
         existing.marker.setPopupContent(html)
-        existing.sig = sig
       } else {
         const marker = L.circleMarker([geo.lat, geo.lon], {
           radius: 5,
