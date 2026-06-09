@@ -45,10 +45,20 @@ export function parseAddr(s) {
 //   reply-src-address = LAN target (private, post-DNAT)
 // so without the reply-side hint these would look like transit and the marker
 // would end up at the router's WAN location instead of the actual origin.
+// Pull port from the address string first ("ip:port" form), then fall back to
+// the separate conn[*-port] field. RouterOS REST varies by version: some
+// builds inline the port into src-address, others expose src-port as its own
+// key (and for protocols like ICMP there's no port at all).
+function addrWithPort(conn, addrKey, portKey) {
+  const a = parseAddr(conn[addrKey])
+  if (!a.port && conn[portKey]) a.port = String(conn[portKey])
+  return a
+}
+
 export function classify(conn) {
-  const src = parseAddr(conn['src-address'])
-  const dst = parseAddr(conn['dst-address'])
-  const rSrc = parseAddr(conn['reply-src-address'])
+  const src = addrWithPort(conn, 'src-address', 'src-port')
+  const dst = addrWithPort(conn, 'dst-address', 'dst-port')
+  const rSrc = addrWithPort(conn, 'reply-src-address', 'reply-src-port')
   const srcPriv = isPrivate(src.ip)
   const dstPriv = isPrivate(dst.ip)
   const rSrcPriv = rSrc.ip ? isPrivate(rSrc.ip) : false
