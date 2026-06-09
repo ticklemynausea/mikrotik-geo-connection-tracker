@@ -1,0 +1,9 @@
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0e1116;
+  color: #e6e6e6;
+}
