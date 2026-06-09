@@ -15,10 +15,18 @@
     // preferCanvas: render all circleMarkers into a single <canvas> instead of
     // one SVG <path> each. Panning/zoom becomes a canvas translate — orders of
     // magnitude cheaper once there are more than a handful of markers.
-    map = L.map(mapEl, { worldCopyJump: true, preferCanvas: true }).setView([20, 0], 2)
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    map = L.map(mapEl, { preferCanvas: true, zoomControl: false, minZoom: 2 }).setView([25, 10], 3)
+    L.control.zoom({ position: 'bottomright' }).addTo(map)
+    // CartoDB Dark Matter — free, no API key, reads as near-black with muted
+    // landmasses so the coloured markers do the talking. {r} swaps in @2x
+    // tiles on retina displays automatically. noWrap stops the world tiling
+    // horizontally past ±180° so markers don't double up across copies.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap',
+      subdomains: 'abcd',
+      noWrap: true,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map)
   })
 
@@ -169,14 +177,46 @@
     width: 100%;
     height: 100%;
   }
+  :global(.leaflet-container) { background: #0b0f15; }
+  :global(.leaflet-popup-content-wrapper) {
+    background: #161b24;
+    color: #e6e6e6;
+    border: 1px solid #2a313d;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+  :global(.leaflet-popup-tip) {
+    background: #161b24;
+    border: 1px solid #2a313d;
+  }
+  :global(.leaflet-popup-close-button) { color: #888 !important; }
+  :global(.leaflet-popup-close-button:hover) { color: #e6e6e6 !important; }
+  :global(.leaflet-control-attribution) {
+    background: rgba(20, 25, 33, 0.78) !important;
+    color: #9aa3b2 !important;
+    padding: 2px 6px !important;
+    backdrop-filter: blur(2px);
+  }
+  :global(.leaflet-control-attribution a) { color: #b9c4d6 !important; }
+  :global(.leaflet-bar) {
+    background: #161b24 !important;
+    border: 1px solid #2a313d !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+  }
+  :global(.leaflet-bar a) {
+    background: #161b24 !important;
+    color: #e6e6e6 !important;
+    border-bottom-color: #2a313d !important;
+  }
+  :global(.leaflet-bar a:hover) { background: #1f2632 !important; }
   :global(.pop) { font: 12px/1.4 system-ui, sans-serif; }
-  :global(.pop-head) { font-size: 13px; margin-bottom: 2px; }
-  :global(.pop-rdns) { color: #555; font-size: 11px; margin: 1px 0 4px; }
-  :global(.pop-rdns .rdns-val) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #333; word-break: break-all; }
-  :global(.pop-count) { color: #666; margin-bottom: 6px; font-size: 11px; }
-  :global(.pop-row) { padding: 3px 0; border-top: 1px solid #eee; }
+  :global(.pop-head) { font-size: 13px; margin-bottom: 2px; color: #f0f3f8; }
+  :global(.pop-rdns) { color: #9aa3b2; font-size: 11px; margin: 1px 0 4px; }
+  :global(.pop-rdns .rdns-val) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #d6dde8; word-break: break-all; }
+  :global(.pop-count) { color: #8a93a4; margin-bottom: 6px; font-size: 11px; }
+  :global(.pop-row) { padding: 3px 0; border-top: 1px solid #232a36; }
   :global(.pop-row:first-of-type) { border-top: none; }
-  :global(.pop-addr code) { font-size: 11px; }
-  :global(.pop-meta) { color: #666; font-size: 11px; margin-top: 1px; }
-  :global(.pop-more) { color: #999; font-size: 11px; padding-top: 4px; font-style: italic; }
+  :global(.pop-addr code) { font-size: 11px; color: #d6dde8; background: transparent; }
+  :global(.pop-meta) { color: #8a93a4; font-size: 11px; margin-top: 1px; }
+  :global(.pop-more) { color: #6c7689; font-size: 11px; padding-top: 4px; font-style: italic; }
 </style>
