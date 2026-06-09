@@ -119,6 +119,36 @@ deploy will hit CORS against the router (see *Architecture › CORS*); for
 production use you need a reverse proxy (Caddy / nginx / RouterOS container)
 that fronts the router's REST endpoint under the same origin as the app.
 
+### Docker
+
+A multi-stage `Dockerfile` builds the bundle and ships it behind nginx,
+which serves the static files and proxies `/rest/*` to the router with a
+server-injected `Authorization` header. Router credentials live in the
+container's runtime env — never in the image, never in the JS bundle.
+
+```sh
+docker build -t mikrotik-geo-connection-tracker .
+
+docker run -d --name mikrotik-geo -p 8080:80 \
+  -e ROUTER_URL=http://192.168.200.1 \
+  -e ROUTER_USER=monitor \
+  -e ROUTER_PASS=hunter2 \
+  --restart unless-stopped \
+  mikrotik-geo-connection-tracker
+```
+
+Then open <http://localhost:8080>.
+
+All three env vars are mandatory — the entrypoint aborts container start
+with a clear error if any is missing. For ergonomics, drop them in an
+env file and use `--env-file mikrotik.env` instead of three `-e` flags.
+
+| Var           | Required | Notes                                |
+|---------------|----------|--------------------------------------|
+| `ROUTER_URL`  | yes      | e.g. `http://192.168.200.1`          |
+| `ROUTER_USER` | yes      | RouterOS user with REST read access  |
+| `ROUTER_PASS` | yes      | Password for that user               |
+
 ---
 
 ## Architecture
