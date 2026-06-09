@@ -2,7 +2,7 @@ import { Reader } from 'mmdb-lib'
 import { Buffer } from 'buffer'
 import { config } from './config.js'
 
-// Drop a GeoLite2-City.mmdb file at public/geoip/ (see PROBLEM.md).
+// Drop a GeoLite2-City.mmdb file at public/geoip/ (see README.md).
 // The DB is fetched once at app start and queried in-memory thereafter.
 
 let readerPromise = null
@@ -19,7 +19,7 @@ function loadReader() {
       if (ctype.includes('text/html')) {
         throw new Error(
           `GeoIP DB missing at ${config.geoipUrl}: server returned HTML. ` +
-          `Drop GeoLite2-City.mmdb into public/geoip/ (see PROBLEM.md).`
+          `Drop GeoLite2-City.mmdb into public/geoip/ (see README.md).`
         )
       }
       return res.arrayBuffer()
