@@ -319,7 +319,7 @@
                     <li class:dim={hidden}>
                       <label>
                         <input type="checkbox" checked={!hidden} onchange={() => toggleScope(s.key, e.ip)} />
-                        <span class="ip">{e.ip}</span>
+                        <span class="ip" title={e.ip}>{e.ip}</span>
                         {#if cc}<span class="cc">{cc}</span>{/if}
                         <span class="n">{e.count}</span>
                       </label>
