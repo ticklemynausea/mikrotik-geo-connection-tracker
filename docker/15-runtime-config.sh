@@ -15,5 +15,6 @@ OUT=/usr/share/nginx/html/runtime-config.js
 cat > "$OUT" <<EOF
 window.__APP_CONFIG__ = {
   lanV6Prefixes: "${LAN_V6_PREFIXES:-}",
+  wanV4Addresses: "${WAN_V4_ADDRESSES:-}",
 };
 EOF

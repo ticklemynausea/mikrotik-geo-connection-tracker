@@ -107,6 +107,7 @@ Variables read at startup:
 | `PASS`                    | yes      | —                                |
 | `URL`                     | no       | `http://192.168.200.1`           |
 | `LAN_V6_PREFIXES`         | no       | —                                |
+| `WAN_V4_ADDRESSES`        | no       | —                                |
 | `VITE_POLL_INTERVAL_MS`   | no       | `3000`                           |
 | `VITE_GEOIP_DB_URL`       | no       | `/geoip/GeoLite2-City.mmdb`      |
 
@@ -118,6 +119,13 @@ your LAN — typically your ISP's delegated prefix (e.g.
 prefixes get classified as incoming/outgoing instead of transit. Home IPv6
 networks don't NAT, so LAN devices have GUA addresses that otherwise look
 "public" to the classifier and end up in the Transit bucket.
+
+`WAN_V4_ADDRESSES` is a comma-separated list of IPv4 addresses (or CIDRs
+for assigned blocks) that the router itself owns on the WAN side. The
+router runs flows of its own — DNS recursion, NTP, watchdog pings, plus
+inbound admin connections from outside — and conntrack shows the WAN IP
+as one endpoint of each. Without this var both endpoints look public and
+those flows land in Transit; with it, they pull into incoming/outgoing.
 
 ### Build
 
@@ -146,6 +154,7 @@ docker run -d --name mikrotik-geo -p 8080:80 \
   -e ROUTER_USER=monitor \
   -e ROUTER_PASS=hunter2 \
   -e LAN_V6_PREFIXES=2001:db8:abcd::/56 \
+  -e WAN_V4_ADDRESSES=203.0.113.42 \
   --restart unless-stopped \
   mikrotik-geo-connection-tracker
 ```
@@ -162,10 +171,12 @@ env file and use `--env-file mikrotik.env` instead of three `-e` flags.
 | `ROUTER_USER`      | yes      | RouterOS user with REST read access  |
 | `ROUTER_PASS`      | yes      | Password for that user               |
 | `LAN_V6_PREFIXES`  | no       | CSV of CIDRs — see *Running*         |
+| `WAN_V4_ADDRESSES` | no       | CSV of IPs/CIDRs — see *Running*     |
 
-`LAN_V6_PREFIXES` is also a runtime env var here — change the value and
-restart the container, no rebuild. An entrypoint script writes the value
-into a tiny `runtime-config.js` that the SPA loads before its main bundle.
+Both `LAN_V6_PREFIXES` and `WAN_V4_ADDRESSES` are runtime env vars here —
+change a value and restart the container, no rebuild. An entrypoint script
+writes them into a tiny `runtime-config.js` that the SPA loads before its
+main bundle.
 
 ---
 

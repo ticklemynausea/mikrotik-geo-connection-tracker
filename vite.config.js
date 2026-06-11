@@ -12,6 +12,7 @@ if (process.env.PASS) {
 }
 if (process.env.URL) process.env.VITE_MIKROTIK_URL = process.env.URL
 if (process.env.LAN_V6_PREFIXES) process.env.VITE_LAN_V6_PREFIXES = process.env.LAN_V6_PREFIXES
+if (process.env.WAN_V4_ADDRESSES) process.env.VITE_WAN_V4_ADDRESSES = process.env.WAN_V4_ADDRESSES
 
 const routerTarget = (process.env.VITE_MIKROTIK_URL || 'http://192.168.200.1').replace(/\/+$/, '')
 

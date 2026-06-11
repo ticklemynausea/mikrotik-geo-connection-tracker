@@ -55,6 +55,31 @@ function parseV6Cidr(s) {
   return { bytes, bits }
 }
 
+function parseV4(ip) {
+  if (!ip) return null
+  const parts = ip.split('.')
+  if (parts.length !== 4) return null
+  const out = new Uint8Array(4)
+  for (let i = 0; i < 4; i++) {
+    const v = Number(parts[i])
+    if (!Number.isInteger(v) || v < 0 || v > 255) return null
+    out[i] = v
+  }
+  return out
+}
+
+// Accepts both bare addresses (treated as /32) and CIDR form.
+function parseV4Cidr(s) {
+  const [ip, lenStr] = s.trim().split('/')
+  const bits = lenStr === undefined ? 32 : Number(lenStr)
+  if (!Number.isFinite(bits) || bits < 0 || bits > 32) return null
+  const bytes = parseV4(ip)
+  if (!bytes) return null
+  return { bytes, bits }
+}
+
+// Generic byte-wise CIDR membership — works for both v4 (4-byte) and v6
+// (16-byte) inputs since neither side is hard-coded to a length.
 function inCidr(ipBytes, { bytes, bits }) {
   const full = bits >> 3
   const rem = bits & 7
@@ -66,19 +91,34 @@ function inCidr(ipBytes, { bytes, bits }) {
 
 // Parsed once at module load. Two sources, runtime-first:
 //   - Docker: docker/15-runtime-config.sh writes window.__APP_CONFIG__ at
-//     container start from the LAN_V6_PREFIXES env. Lets you change the
-//     prefix and restart the container — no rebuild needed.
-//   - Dev: vite.config.js maps LAN_V6_PREFIXES → VITE_LAN_V6_PREFIXES at
-//     dev-server start, which lands in import.meta.env.
-// Empty or malformed entries are silently dropped — bad CIDRs just mean
+//     container start from the LAN_V6_PREFIXES / WAN_V4_ADDRESSES env.
+//     Change the values and restart the container — no rebuild needed.
+//   - Dev: vite.config.js maps the same names to their VITE_* counterparts
+//     at dev-server start, which land in import.meta.env.
+// Empty or malformed entries are silently dropped — bad CIDRs/IPs just mean
 // nothing matches.
-const runtimeCsv = (typeof window !== 'undefined' && window.__APP_CONFIG__?.lanV6Prefixes) || ''
-const buildCsv = import.meta.env.VITE_LAN_V6_PREFIXES ?? ''
-const LAN_V6_PREFIXES = (runtimeCsv || buildCsv)
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
+function readCsv(key, viteKey) {
+  const fromRuntime = (typeof window !== 'undefined' && window.__APP_CONFIG__?.[key]) || ''
+  const fromBuild = import.meta.env[viteKey] ?? ''
+  return (fromRuntime || fromBuild)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+const LAN_V6_PREFIXES = readCsv('lanV6Prefixes', 'VITE_LAN_V6_PREFIXES')
   .map(parseV6Cidr)
+  .filter(Boolean)
+
+// The router's own public IPv4 address(es). When the router itself opens an
+// outbound flow (DNS recursion, NTP, scripts) or accepts an inbound one
+// (admin UI from outside), conntrack shows the WAN IP as one endpoint and a
+// public IP as the other — both look "public" by the regex set above and
+// the flow lands in Transit. Recognising the WAN IP as local pulls those
+// rows into incoming/outgoing where they belong. Bare IPs are treated as
+// /32; CIDR is also accepted for assigned blocks.
+const WAN_V4_ADDRESSES = readCsv('wanV4Addresses', 'VITE_WAN_V4_ADDRESSES')
+  .map(parseV4Cidr)
   .filter(Boolean)
 
 export function isPrivate(ip) {
@@ -91,7 +131,12 @@ export function isPrivate(ip) {
     }
     return false
   }
-  return PRIVATE_V4.some((r) => r.test(ip))
+  if (PRIVATE_V4.some((r) => r.test(ip))) return true
+  if (WAN_V4_ADDRESSES.length > 0) {
+    const bytes = parseV4(ip)
+    if (bytes && WAN_V4_ADDRESSES.some((c) => inCidr(bytes, c))) return true
+  }
+  return false
 }
 
 export function familyOf(ip) {
