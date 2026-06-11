@@ -3,14 +3,18 @@
     groups,
     hiddenScopes,
     hiddenStates,
+    hiddenFamilies,
+    familyCounts,
     stateCounts,
     toggleScope,
     setScopeVisibility,
     isHiddenScope,
     toggleState,
     setStateVisibility,
+    toggleFamily,
+    setFamilyVisibility,
   } from './groups.js'
-  import { DIRECTION_COLOR, STATE_ORDER, stateLabel } from './connection.js'
+  import { DIRECTION_COLOR, STATE_ORDER, familyOf, stateLabel } from './connection.js'
   import { lookupSync } from './geoip.js'
 
   let { open = true, onClose = () => {} } = $props()
@@ -29,6 +33,34 @@
   let collapsed = $state({})
   let subCollapsed = $state({})
   let statesCollapsed = $state(false)
+  let familiesCollapsed = $state(false)
+
+  // Two families, fixed order. We always render both rows so the user can
+  // un-hide a family even when its current count is zero (mirrors the
+  // States section's "keep hidden-with-zero rows visible" rule).
+  const FAMILIES = [
+    { key: 'v4', label: 'IPv4' },
+    { key: 'v6', label: 'IPv6' },
+  ]
+
+  const familyRows = $derived.by(() => {
+    const counts = $familyCounts
+    return FAMILIES.map(({ key, label }) => ({
+      key,
+      label,
+      count: counts.get(key) ?? 0,
+    }))
+  })
+
+  const familyBulk = $derived.by(() => {
+    let h = 0
+    for (const r of familyRows) if ($hiddenFamilies.has(r.key)) h++
+    if (h === 0) return 'all'
+    if (h === familyRows.length) return 'none'
+    return 'partial'
+  })
+
+  const totalFamilyHosts = $derived(familyRows.reduce((n, r) => n + r.count, 0))
 
   function toggleSection(key) {
     collapsed[key] = !collapsed[key]
@@ -92,6 +124,10 @@
     for (const entry of $groups.values()) {
       const slot = sections[entry.section]
       if (!slot) continue
+      // Mirror visibleGroups: a hidden family drops the host from the
+      // sidebar too, so the sidebar and map agree on what's currently
+      // shown. LAN entries are exempt — their family is meaningless.
+      if (entry.section !== 'lan' && $hiddenFamilies.has(familyOf(entry.ip))) continue
       // Drop items whose state is hidden so directional counts and lists
       // match what's actually on the map. A host whose only flows are all
       // state-hidden disappears from the sidebar entirely (its marker is
@@ -133,6 +169,48 @@
 
 <aside class:closed={!open}>
   <button class="mobile-close" onclick={onClose} aria-label="close sidebar" title="close">✕</button>
+  <section>
+    <header class="states-head">
+      <button
+        class="head-btn"
+        onclick={() => (familiesCollapsed = !familiesCollapsed)}
+        aria-expanded={!familiesCollapsed}
+        title={familiesCollapsed ? 'expand' : 'collapse'}
+      >
+        <span class="chevron" class:open={!familiesCollapsed}>▸</span>
+        <span class="title">Families</span>
+        <span class="count">{totalFamilyHosts}</span>
+      </button>
+      <button
+        class="bulk"
+        class:active={familyBulk === 'all'}
+        disabled={familyBulk === 'all'}
+        onclick={() => setFamilyVisibility(FAMILIES.map((f) => f.key), true)}
+        title="show all families"
+      >all</button>
+      <button
+        class="bulk"
+        class:active={familyBulk === 'none'}
+        disabled={familyBulk === 'none'}
+        onclick={() => setFamilyVisibility(FAMILIES.map((f) => f.key), false)}
+        title="hide all families"
+      >none</button>
+    </header>
+    {#if !familiesCollapsed}
+      <ul>
+        {#each familyRows as r (r.key)}
+          {@const hidden = $hiddenFamilies.has(r.key)}
+          <li class:dim={hidden}>
+            <label>
+              <input type="checkbox" checked={!hidden} onchange={() => toggleFamily(r.key)} />
+              <span class="ip">{r.label}</span>
+              <span class="n">{r.count}</span>
+            </label>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
   <section>
     <header class="states-head">
       <button

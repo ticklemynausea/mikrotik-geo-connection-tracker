@@ -11,15 +11,21 @@ const PRIVATE_V4 = [
 ]
 const PRIVATE_V6 = [
   /^::1$/,
+  /^::$/,
   /^fe80:/i,
   /^fc/i,
   /^fd/i,
+  /^ff/i,
 ]
 
 export function isPrivate(ip) {
   if (!ip) return true
   if (ip.includes(':')) return PRIVATE_V6.some((r) => r.test(ip))
   return PRIVATE_V4.some((r) => r.test(ip))
+}
+
+export function familyOf(ip) {
+  return ip && ip.includes(':') ? 'v6' : 'v4'
 }
 
 export function parseAddr(s) {

@@ -1,6 +1,6 @@
 import { derived, writable } from 'svelte/store'
 import { connections } from './mikrotik.js'
-import { classify, stateKey } from './connection.js'
+import { classify, familyOf, stateKey } from './connection.js'
 
 // Map<remoteIp, {ip, directions: Set, items: [], section}> — the shared grouped
 // view of conntrack rows, derived from the polling store. Both the world map
@@ -48,6 +48,20 @@ export const stateCounts = derived(groups, ($groups) => {
   return m
 })
 
+// Map<'v4'|'v6', hostCount> — count of public (non-LAN) hosts per family.
+// LAN entries are excluded because their endpoints are private on both
+// sides; the LAN section in the sidebar groups them separately and the
+// family filter doesn't apply to them.
+export const familyCounts = derived(groups, ($groups) => {
+  const m = new Map()
+  for (const e of $groups.values()) {
+    if (e.section === 'lan') continue
+    const f = familyOf(e.ip)
+    m.set(f, (m.get(f) ?? 0) + 1)
+  }
+  return m
+})
+
 // Set<"section:ip"> — section ∈ {incoming, outgoing, mixed, transit} and is
 // the HOST's fixed classification (from its overall direction set), not the
 // per-item direction. An item is hidden iff either of its endpoints is keyed
@@ -60,6 +74,12 @@ export const hiddenScopes = writable(new Set())
 // filtering happens flow-by-flow, scope filtering happens host-by-host.
 export const hiddenStates = writable(new Set())
 
+// Set<'v4'|'v6'> — address families whose hosts are dropped from
+// visibleGroups in full. Operates at the entry (host) level: an entry's
+// family is uniquely determined by its remote IP, so no per-item check is
+// needed. LAN entries are exempt — their family is meaningless externally.
+export const hiddenFamilies = writable(new Set())
+
 function scopeKey(section, ip) {
   return `${section}:${ip}`
 }
@@ -69,11 +89,12 @@ function scopeKey(section, ip) {
 // section is preserved as-is — marker colour and sidebar placement reflect
 // the natural classification, not the visible-after-filter slice.
 export const visibleGroups = derived(
-  [groups, hiddenScopes, hiddenStates],
-  ([$groups, $hidden, $hiddenStates]) => {
+  [groups, hiddenScopes, hiddenStates, hiddenFamilies],
+  ([$groups, $hidden, $hiddenStates, $hiddenFamilies]) => {
     const out = new Map()
     for (const [ip, entry] of $groups) {
       const s = entry.section
+      if (s !== 'lan' && $hiddenFamilies.has(familyOf(ip))) continue
       const items = entry.items.filter((it) => {
         if ($hiddenStates.has(it.state)) return false
         if (it.remote.ip && $hidden.has(scopeKey(s, it.remote.ip))) return false
@@ -128,6 +149,26 @@ export function setStateVisibility(keys, visible) {
     for (const k of keys) {
       if (visible) next.delete(k)
       else next.add(k)
+    }
+    return next
+  })
+}
+
+export function toggleFamily(family) {
+  hiddenFamilies.update((s) => {
+    const next = new Set(s)
+    if (next.has(family)) next.delete(family)
+    else next.add(family)
+    return next
+  })
+}
+
+export function setFamilyVisibility(families, visible) {
+  hiddenFamilies.update((s) => {
+    const next = new Set(s)
+    for (const f of families) {
+      if (visible) next.delete(f)
+      else next.add(f)
     }
     return next
   })

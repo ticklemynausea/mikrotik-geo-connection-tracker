@@ -6,28 +6,50 @@ export const connectionError = writable(null)
 
 let timer = null
 
-async function fetchOnce() {
-  // Relative path — Vite dev server proxies /rest/* to the router (see vite.config.js).
-  // cache: 'no-store' is load-bearing: RouterOS doesn't set Cache-Control on
-  // REST responses, so without it the browser will happily serve the first
-  // poll's body for every subsequent identical-URL fetch. Connection counts
-  // looked frozen because they literally were — the cached response, not
-  // the router, was answering.
-  const res = await fetch('/rest/ip/firewall/connection', {
+// Relative path — Vite dev server proxies /rest/* to the router (see vite.config.js).
+// cache: 'no-store' is load-bearing: RouterOS doesn't set Cache-Control on
+// REST responses, so without it the browser will happily serve the first
+// poll's body for every subsequent identical-URL fetch. Connection counts
+// looked frozen because they literally were — the cached response, not
+// the router, was answering.
+async function fetchTable(path) {
+  const res = await fetch(path, {
     headers: { Authorization: authHeader() },
     cache: 'no-store',
   })
-  if (!res.ok) throw new Error(`Mikrotik responded ${res.status}`)
-  return res.json()
+  if (!res.ok) throw new Error(`${res.status}`)
+  const list = await res.json()
+  return Array.isArray(list) ? list : []
+}
+
+// IPv4 and IPv6 conntrack live at separate REST endpoints. We poll both
+// concurrently and merge into one list. allSettled (not all) is deliberate:
+// many home routers run with IPv6 disabled or the firewall package
+// missing, in which case the v6 endpoint 4xxs. v4 should keep rendering.
+async function fetchOnce() {
+  const [v4, v6] = await Promise.allSettled([
+    fetchTable('/rest/ip/firewall/connection'),
+    fetchTable('/rest/ipv6/firewall/connection'),
+  ])
+  const out = []
+  const errs = []
+  if (v4.status === 'fulfilled') out.push(...v4.value)
+  else errs.push(`v4: ${v4.reason.message}`)
+  if (v6.status === 'fulfilled') out.push(...v6.value)
+  else errs.push(`v6: ${v6.reason.message}`)
+  if (v4.status === 'rejected' && v6.status === 'rejected') {
+    throw new Error(errs.join(' · '))
+  }
+  return { list: out, partialError: errs.length > 0 ? errs.join(' · ') : null }
 }
 
 export function startPolling() {
   if (timer) return
   const tick = async () => {
     try {
-      const list = await fetchOnce()
-      connections.set(Array.isArray(list) ? list : [])
-      connectionError.set(null)
+      const { list, partialError } = await fetchOnce()
+      connections.set(list)
+      connectionError.set(partialError)
     } catch (err) {
       connectionError.set(err.message)
     }
