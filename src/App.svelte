@@ -7,6 +7,10 @@
   import { DIRECTION_COLOR } from './lib/connection.js'
 
   let geoStatus = $state('loading geoip db…')
+  // Desktop opens with the sidebar visible; mobile starts collapsed so the map
+  // gets the full viewport. Read matchMedia at module init — script bodies in
+  // Svelte components only run in the browser, so `window` is always defined.
+  let sidebarOpen = $state(!window.matchMedia('(max-width: 768px)').matches)
 
   const legend = [
     { label: 'outgoing', color: DIRECTION_COLOR.outgoing },
@@ -22,10 +26,29 @@
     startPolling()
     return stopPolling
   })
+
+  // After the sidebar collapses/expands, the map container's width changes.
+  // Leaflet auto-listens for window resize, so a synthetic event after the
+  // CSS transition is the cheapest way to trigger invalidateSize without
+  // wiring a prop through WorldMap.
+  $effect(() => {
+    sidebarOpen
+    const id = setTimeout(() => window.dispatchEvent(new Event('resize')), 220)
+    return () => clearTimeout(id)
+  })
 </script>
 
 <main>
   <header>
+    <button
+      class="sidebar-toggle"
+      onclick={() => (sidebarOpen = !sidebarOpen)}
+      aria-label={sidebarOpen ? 'hide sidebar' : 'show sidebar'}
+      aria-expanded={sidebarOpen}
+      title={sidebarOpen ? 'hide sidebar' : 'show sidebar'}
+    >
+      <span class="bars" aria-hidden="true"></span>
+    </button>
     <h1>mikrotik geo connection tracker</h1>
     <span class="status">{geoStatus}</span>
     <span class="status live" class:stalled={$connectionError}>
@@ -43,7 +66,7 @@
     </ul>
   </header>
   <div class="body">
-    <Sidebar />
+    <Sidebar open={sidebarOpen} onClose={() => (sidebarOpen = false)} />
     <section class="map-wrap">
       <WorldMap />
     </section>
@@ -68,6 +91,47 @@
     font-size: 1rem;
     font-weight: 600;
     margin: 0;
+  }
+  .sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid #2a313d;
+    border-radius: 4px;
+    color: #c8cfd9;
+    cursor: pointer;
+  }
+  .sidebar-toggle:hover { background: #2a3140; border-color: #3a4250; }
+  .bars {
+    position: relative;
+    width: 16px;
+    height: 12px;
+  }
+  .bars::before, .bars::after, .bars { background-clip: padding-box; }
+  .bars::before, .bars::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: currentColor;
+    border-radius: 1px;
+  }
+  .bars::before { top: 0; box-shadow: 0 5px 0 currentColor; }
+  .bars::after  { bottom: 0; }
+  @media (max-width: 768px) {
+    header {
+      gap: 0.75rem;
+      padding: 0.55rem 0.75rem;
+      flex-wrap: wrap;
+    }
+    h1 { font-size: 0.9rem; }
+    .legend { display: none; }
+    .spacer { display: none; }
   }
   .status {
     font-size: 0.85rem;

@@ -13,6 +13,8 @@
   import { DIRECTION_COLOR, STATE_ORDER, stateLabel } from './connection.js'
   import { lookupSync } from './geoip.js'
 
+  let { open = true, onClose = () => {} } = $props()
+
   // remoteLabel / localLabel rename the two sub-lists for the LAN section,
   // where "remote" and "local" don't make sense (both endpoints are LAN).
   // We list LAN initiators (conntrack src) and the LAN targets they reached.
@@ -129,7 +131,8 @@
   }
 </script>
 
-<aside>
+<aside class:closed={!open}>
+  <button class="mobile-close" onclick={onClose} aria-label="close sidebar" title="close">✕</button>
   <section>
     <header class="states-head">
       <button
@@ -265,6 +268,40 @@
     overflow-x: hidden;
     height: 100%;
     font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  aside.closed { display: none; }
+  .mobile-close { display: none; }
+  @media (max-width: 768px) {
+    aside {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: auto;
+      z-index: 1000;
+      border-right: none;
+    }
+    .mobile-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      background: #1a1f29;
+      border: 1px solid #2a313d;
+      border-radius: 4px;
+      color: #c8cfd9;
+      font-size: 0.9rem;
+      cursor: pointer;
+      z-index: 3;
+    }
+    .mobile-close:hover { background: #2a3140; }
   }
   section { border-bottom: 1px solid #1c2230; }
   section > header {
