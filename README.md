@@ -106,10 +106,18 @@ Variables read at startup:
 | `USER`                    | yes¹     | —                                |
 | `PASS`                    | yes      | —                                |
 | `URL`                     | no       | `http://192.168.200.1`           |
+| `LAN_V6_PREFIXES`         | no       | —                                |
 | `VITE_POLL_INTERVAL_MS`   | no       | `3000`                           |
 | `VITE_GEOIP_DB_URL`       | no       | `/geoip/GeoLite2-City.mmdb`      |
 
 ¹ Effectively required. If you omit `PASS`, `USER` is ignored.
+
+`LAN_V6_PREFIXES` is a comma-separated list of IPv6 CIDRs that belong to
+your LAN — typically your ISP's delegated prefix (e.g.
+`2001:db8:abcd::/56`). Flows where one endpoint is inside one of these
+prefixes get classified as incoming/outgoing instead of transit. Home IPv6
+networks don't NAT, so LAN devices have GUA addresses that otherwise look
+"public" to the classifier and end up in the Transit bucket.
 
 ### Build
 
@@ -137,6 +145,7 @@ docker run -d --name mikrotik-geo -p 8080:80 \
   -e ROUTER_URL=http://192.168.200.1 \
   -e ROUTER_USER=monitor \
   -e ROUTER_PASS=hunter2 \
+  -e LAN_V6_PREFIXES=2001:db8:abcd::/56 \
   --restart unless-stopped \
   mikrotik-geo-connection-tracker
 ```
@@ -147,11 +156,16 @@ All three env vars are mandatory — the entrypoint aborts container start
 with a clear error if any is missing. For ergonomics, drop them in an
 env file and use `--env-file mikrotik.env` instead of three `-e` flags.
 
-| Var           | Required | Notes                                |
-|---------------|----------|--------------------------------------|
-| `ROUTER_URL`  | yes      | e.g. `http://192.168.200.1`          |
-| `ROUTER_USER` | yes      | RouterOS user with REST read access  |
-| `ROUTER_PASS` | yes      | Password for that user               |
+| Var                | Required | Notes                                |
+|--------------------|----------|--------------------------------------|
+| `ROUTER_URL`       | yes      | e.g. `http://192.168.200.1`          |
+| `ROUTER_USER`      | yes      | RouterOS user with REST read access  |
+| `ROUTER_PASS`      | yes      | Password for that user               |
+| `LAN_V6_PREFIXES`  | no       | CSV of CIDRs — see *Running*         |
+
+`LAN_V6_PREFIXES` is also a runtime env var here — change the value and
+restart the container, no rebuild. An entrypoint script writes the value
+into a tiny `runtime-config.js` that the SPA loads before its main bundle.
 
 ---
 

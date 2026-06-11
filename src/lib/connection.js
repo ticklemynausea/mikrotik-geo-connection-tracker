@@ -18,9 +18,79 @@ const PRIVATE_V6 = [
   /^ff/i,
 ]
 
+// Parse "2001:db8::/56" → { bytes: Uint8Array(16), bits: 56 }, or null on
+// garbage. Used to recognise the router's own delegated v6 prefix as "local"
+// so home LAN devices (which have GUA addresses, no NAT) get classified as
+// incoming/outgoing instead of transit.
+function parseV6(ip) {
+  if (!ip || !ip.includes(':')) return null
+  let parts
+  if (ip.includes('::')) {
+    const [head, tail] = ip.split('::')
+    const headParts = head ? head.split(':') : []
+    const tailParts = tail ? tail.split(':') : []
+    const fill = 8 - headParts.length - tailParts.length
+    if (fill < 0) return null
+    parts = [...headParts, ...new Array(fill).fill('0'), ...tailParts]
+  } else {
+    parts = ip.split(':')
+  }
+  if (parts.length !== 8) return null
+  const out = new Uint8Array(16)
+  for (let i = 0; i < 8; i++) {
+    const v = parseInt(parts[i] || '0', 16)
+    if (Number.isNaN(v) || v < 0 || v > 0xffff) return null
+    out[i * 2] = v >> 8
+    out[i * 2 + 1] = v & 0xff
+  }
+  return out
+}
+
+function parseV6Cidr(s) {
+  const [ip, lenStr] = s.trim().split('/')
+  const bits = lenStr === undefined ? 128 : Number(lenStr)
+  if (!Number.isFinite(bits) || bits < 0 || bits > 128) return null
+  const bytes = parseV6(ip)
+  if (!bytes) return null
+  return { bytes, bits }
+}
+
+function inCidr(ipBytes, { bytes, bits }) {
+  const full = bits >> 3
+  const rem = bits & 7
+  for (let i = 0; i < full; i++) if (ipBytes[i] !== bytes[i]) return false
+  if (rem === 0) return true
+  const mask = (0xff << (8 - rem)) & 0xff
+  return (ipBytes[full] & mask) === (bytes[full] & mask)
+}
+
+// Parsed once at module load. Two sources, runtime-first:
+//   - Docker: docker/15-runtime-config.sh writes window.__APP_CONFIG__ at
+//     container start from the LAN_V6_PREFIXES env. Lets you change the
+//     prefix and restart the container — no rebuild needed.
+//   - Dev: vite.config.js maps LAN_V6_PREFIXES → VITE_LAN_V6_PREFIXES at
+//     dev-server start, which lands in import.meta.env.
+// Empty or malformed entries are silently dropped — bad CIDRs just mean
+// nothing matches.
+const runtimeCsv = (typeof window !== 'undefined' && window.__APP_CONFIG__?.lanV6Prefixes) || ''
+const buildCsv = import.meta.env.VITE_LAN_V6_PREFIXES ?? ''
+const LAN_V6_PREFIXES = (runtimeCsv || buildCsv)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map(parseV6Cidr)
+  .filter(Boolean)
+
 export function isPrivate(ip) {
   if (!ip) return true
-  if (ip.includes(':')) return PRIVATE_V6.some((r) => r.test(ip))
+  if (ip.includes(':')) {
+    if (PRIVATE_V6.some((r) => r.test(ip))) return true
+    if (LAN_V6_PREFIXES.length > 0) {
+      const bytes = parseV6(ip)
+      if (bytes && LAN_V6_PREFIXES.some((c) => inCidr(bytes, c))) return true
+    }
+    return false
+  }
   return PRIVATE_V4.some((r) => r.test(ip))
 }
 
