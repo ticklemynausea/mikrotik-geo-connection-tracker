@@ -1,6 +1,6 @@
 import { derived, writable } from 'svelte/store'
 import { connections } from './mikrotik.js'
-import { classify, familyOf, stateKey } from './connection.js'
+import { classify, familyOf, serviceKey, stateKey } from './connection.js'
 
 // Map<remoteIp, {ip, directions: Set, items: [], section}> — the shared grouped
 // view of conntrack rows, derived from the polling store. Both the world map
@@ -26,6 +26,7 @@ export const groups = derived(connections, ($conns) => {
       local: c.local,
       remote: c.remote,
       state: stateKey(conn),
+      service: serviceKey(conn),
     })
   }
   for (const e of m.values()) {
@@ -43,6 +44,22 @@ export const stateCounts = derived(groups, ($groups) => {
   for (const entry of $groups.values()) {
     for (const it of entry.items) {
       m.set(it.state, (m.get(it.state) ?? 0) + 1)
+    }
+  }
+  return m
+})
+
+// Map<serviceKey, flowCount> — flows per `proto:port` across the whole
+// (unfiltered) groups map. Only port-bearing protocols (TCP/UDP/SCTP) show
+// up here; items with service === null are excluded. Counts ignore all
+// hidden* sets so the Services UI reflects raw traffic, not the post-filter
+// view.
+export const serviceCounts = derived(groups, ($groups) => {
+  const m = new Map()
+  for (const entry of $groups.values()) {
+    for (const it of entry.items) {
+      if (!it.service) continue
+      m.set(it.service, (m.get(it.service) ?? 0) + 1)
     }
   }
   return m
@@ -80,6 +97,11 @@ export const hiddenStates = writable(new Set())
 // needed. LAN entries are exempt — their family is meaningless externally.
 export const hiddenFamilies = writable(new Set())
 
+// Set<serviceKey> — flows whose service (`proto:dst-port`, e.g. "tcp:443")
+// is in this set get filtered out of `visibleGroups`. Items without a
+// service key (ICMP/GRE/…) are unaffected — hide those via States.
+export const hiddenServices = writable(new Set())
+
 function scopeKey(section, ip) {
   return `${section}:${ip}`
 }
@@ -89,14 +111,15 @@ function scopeKey(section, ip) {
 // section is preserved as-is — marker colour and sidebar placement reflect
 // the natural classification, not the visible-after-filter slice.
 export const visibleGroups = derived(
-  [groups, hiddenScopes, hiddenStates, hiddenFamilies],
-  ([$groups, $hidden, $hiddenStates, $hiddenFamilies]) => {
+  [groups, hiddenScopes, hiddenStates, hiddenFamilies, hiddenServices],
+  ([$groups, $hidden, $hiddenStates, $hiddenFamilies, $hiddenServices]) => {
     const out = new Map()
     for (const [ip, entry] of $groups) {
       const s = entry.section
       if (s !== 'lan' && $hiddenFamilies.has(familyOf(ip))) continue
       const items = entry.items.filter((it) => {
         if ($hiddenStates.has(it.state)) return false
+        if (it.service && $hiddenServices.has(it.service)) return false
         if (it.remote.ip && $hidden.has(scopeKey(s, it.remote.ip))) return false
         if (it.local.ip && $hidden.has(scopeKey(s, it.local.ip))) return false
         return true
@@ -169,6 +192,26 @@ export function setFamilyVisibility(families, visible) {
     for (const f of families) {
       if (visible) next.delete(f)
       else next.add(f)
+    }
+    return next
+  })
+}
+
+export function toggleService(key) {
+  hiddenServices.update((s) => {
+    const next = new Set(s)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
+}
+
+export function setServiceVisibility(keys, visible) {
+  hiddenServices.update((s) => {
+    const next = new Set(s)
+    for (const k of keys) {
+      if (visible) next.delete(k)
+      else next.add(k)
     }
     return next
   })

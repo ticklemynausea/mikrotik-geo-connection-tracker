@@ -224,6 +224,27 @@ export function stateKey(conn) {
   return proto || 'other'
 }
 
+// "service" = the listening side of a flow. In every conntrack row we see
+// (LAN→WAN, WAN→LAN port-forward, LAN→LAN, router-originated), `dst-port`
+// is the side that was connected *to* — so it's the service port regardless
+// of direction. Port-bearing protocols only; ICMP/GRE/ESP/… return null and
+// are filtered through the Services UI as a pass-through (use States to hide
+// them). Port falls back to parsing the address since some RouterOS builds
+// inline it into `dst-address` instead of exposing `dst-port`.
+export function serviceKey(conn) {
+  const proto = (conn.protocol ?? '').toLowerCase()
+  if (proto !== 'tcp' && proto !== 'udp' && proto !== 'sctp') return null
+  let port = conn['dst-port']
+  if (!port) port = parseAddr(conn['dst-address']).port
+  if (port === undefined || port === null || port === '') return null
+  return `${proto}:${port}`
+}
+
+export function serviceLabel(key) {
+  const [proto, port] = key.split(':')
+  return `${proto.toUpperCase()} ${port}`
+}
+
 // Display order for state filters in the sidebar. States not in this list
 // (rare protocols, unknown tcp-states) sort alphabetically at the end.
 export const STATE_ORDER = [

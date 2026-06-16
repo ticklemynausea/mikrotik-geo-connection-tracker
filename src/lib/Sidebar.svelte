@@ -4,8 +4,10 @@
     hiddenScopes,
     hiddenStates,
     hiddenFamilies,
+    hiddenServices,
     familyCounts,
     stateCounts,
+    serviceCounts,
     toggleScope,
     setScopeVisibility,
     isHiddenScope,
@@ -13,8 +15,10 @@
     setStateVisibility,
     toggleFamily,
     setFamilyVisibility,
+    toggleService,
+    setServiceVisibility,
   } from './groups.js'
-  import { DIRECTION_COLOR, STATE_ORDER, familyOf, stateLabel } from './connection.js'
+  import { DIRECTION_COLOR, STATE_ORDER, familyOf, stateLabel, serviceLabel } from './connection.js'
   import { lookupSync } from './geoip.js'
 
   let { open = true, onClose = () => {} } = $props()
@@ -34,6 +38,7 @@
   let subCollapsed = $state({})
   let statesCollapsed = $state(false)
   let familiesCollapsed = $state(false)
+  let servicesCollapsed = $state(true)
 
   // Two families, fixed order. We always render both rows so the user can
   // un-hide a family even when its current count is zero (mirrors the
@@ -104,6 +109,29 @@
   const stateBulk = $derived(stateBulkState(stateRows, $hiddenStates))
   const totalFlows = $derived(stateRows.reduce((n, r) => n + r.count, 0))
 
+  // Services present in conntrack, plus any currently-hidden keys whose
+  // traffic has gone quiet — same "keep hidden-with-zero visible" rule as
+  // States, so the user can un-hide them later. Sort by count desc, ties by
+  // port ascending (numeric) and protocol alphabetical.
+  const serviceRows = $derived.by(() => {
+    const counts = $serviceCounts
+    const keys = new Set(counts.keys())
+    for (const k of $hiddenServices) keys.add(k)
+    return [...keys]
+      .map((key) => {
+        const [proto, portStr] = key.split(':')
+        return { key, proto, port: Number(portStr), count: counts.get(key) ?? 0 }
+      })
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count
+        if (a.port !== b.port) return a.port - b.port
+        return a.proto.localeCompare(b.proto)
+      })
+  })
+
+  const serviceBulk = $derived(stateBulkState(serviceRows, $hiddenServices))
+  const totalServices = $derived(serviceRows.reduce((n, r) => n + r.count, 0))
+
   // Partition hosts (= remote-IP-keyed entries from `groups`) by their fixed
   // section. Each remote appears in exactly one section: incoming-only,
   // outgoing-only, mixed (does both), or transit. Within a section's Local
@@ -128,11 +156,15 @@
       // sidebar too, so the sidebar and map agree on what's currently
       // shown. LAN entries are exempt — their family is meaningless.
       if (entry.section !== 'lan' && $hiddenFamilies.has(familyOf(entry.ip))) continue
-      // Drop items whose state is hidden so directional counts and lists
-      // match what's actually on the map. A host whose only flows are all
-      // state-hidden disappears from the sidebar entirely (its marker is
-      // already gone from visibleGroups).
-      const items = entry.items.filter((it) => !$hiddenStates.has(it.state))
+      // Drop items whose state or service is hidden so directional counts
+      // and lists match what's actually on the map. A host whose only flows
+      // are all filtered disappears from the sidebar entirely (its marker
+      // is already gone from visibleGroups).
+      const items = entry.items.filter((it) => {
+        if ($hiddenStates.has(it.state)) return false
+        if (it.service && $hiddenServices.has(it.service)) return false
+        return true
+      })
       if (items.length === 0) continue
       slot.remote.set(entry.ip, items.length)
       for (const it of items) {
@@ -251,6 +283,54 @@
               <label>
                 <input type="checkbox" checked={!hidden} onchange={() => toggleState(r.key)} />
                 <span class="ip">{stateLabel(r.key)}</span>
+                <span class="n">{r.count}</span>
+              </label>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+  </section>
+  <section>
+    <header class="states-head">
+      <button
+        class="head-btn"
+        onclick={() => (servicesCollapsed = !servicesCollapsed)}
+        aria-expanded={!servicesCollapsed}
+        title={servicesCollapsed ? 'expand' : 'collapse'}
+      >
+        <span class="chevron" class:open={!servicesCollapsed}>▸</span>
+        <span class="title">Services</span>
+        <span class="count">{totalServices}</span>
+      </button>
+      {#if serviceRows.length > 0}
+        <button
+          class="bulk"
+          class:active={serviceBulk === 'all'}
+          disabled={serviceBulk === 'all'}
+          onclick={() => setServiceVisibility(serviceRows.map((r) => r.key), true)}
+          title="show all services"
+        >all</button>
+        <button
+          class="bulk"
+          class:active={serviceBulk === 'none'}
+          disabled={serviceBulk === 'none'}
+          onclick={() => setServiceVisibility(serviceRows.map((r) => r.key), false)}
+          title="hide all services"
+        >none</button>
+      {/if}
+    </header>
+    {#if !servicesCollapsed}
+      {#if serviceRows.length === 0}
+        <p class="empty">no services</p>
+      {:else}
+        <ul>
+          {#each serviceRows as r (r.key)}
+            {@const hidden = $hiddenServices.has(r.key)}
+            <li class:dim={hidden}>
+              <label>
+                <input type="checkbox" checked={!hidden} onchange={() => toggleService(r.key)} />
+                <span class="ip">{serviceLabel(r.key)}</span>
                 <span class="n">{r.count}</span>
               </label>
             </li>
