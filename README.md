@@ -10,7 +10,7 @@ No backend. No external services at runtime besides the OSM tile server (and
 Cloudflare's DoH resolver for optional reverse-DNS in popups). The GeoIP
 lookup is fully offline against a bundled MaxMind database.
 
-##Disclaimer
+## Disclaimer
 
 This is a personal project created for personal use and to experiment with LLM-assisted code generation. Use at your own discretion.
 
