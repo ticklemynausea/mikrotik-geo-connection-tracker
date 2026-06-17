@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import WorldMap from './lib/WorldMap.svelte'
   import Sidebar from './lib/Sidebar.svelte'
-  import { connections, connectionError, startPolling, stopPolling } from './lib/mikrotik.js'
+  import { connections, connectionError, polling, startPolling, stopPolling, togglePolling } from './lib/mikrotik.js'
   import { warmup } from './lib/geoip.js'
   import { DIRECTION_COLOR } from './lib/connection.js'
 
@@ -51,7 +51,20 @@
     </button>
     <h1>mikrotik geo connection tracker</h1>
     <span class="status">{geoStatus}</span>
-    <span class="status live" class:stalled={$connectionError}>
+    <button
+      class="poll-toggle"
+      onclick={togglePolling}
+      aria-label={$polling ? 'pause polling' : 'resume polling'}
+      aria-pressed={!$polling}
+      title={$polling ? 'pause polling' : 'resume polling'}
+    >
+      {#if $polling}
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="0.5"/><rect x="7" y="1.5" width="3" height="9" rx="0.5"/></svg>
+      {:else}
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 1.5 L10 6 L3 10.5 Z"/></svg>
+      {/if}
+    </button>
+    <span class="status live" class:stalled={$connectionError} class:paused={!$polling}>
       <span class="live-dot" aria-hidden="true"></span>
       {$connections.length} connections
     </span>
@@ -215,6 +228,33 @@
   .live.stalled .live-dot::before,
   .live.stalled .live-dot::after {
     display: none;
+  }
+  .live.paused .live-dot {
+    background: #6a7280;
+  }
+  .live.paused .live-dot::before,
+  .live.paused .live-dot::after {
+    display: none;
+  }
+  .poll-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid #2a313d;
+    border-radius: 4px;
+    color: #c8cfd9;
+    cursor: pointer;
+  }
+  .poll-toggle:hover { background: #2a3140; border-color: #3a4250; }
+  .poll-toggle svg { fill: currentColor; }
+  .poll-toggle[aria-pressed='true'] {
+    color: #ffc14e;
+    border-color: #5a4a26;
+    background: #2a2014;
   }
   @keyframes live-ping {
     0%        { transform: scale(1);   opacity: 0.7; }

@@ -1,8 +1,12 @@
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import { authHeader, config } from './config.js'
 
 export const connections = writable([])
 export const connectionError = writable(null)
+// Live polling state — exposed so the header can render a pause/resume
+// affordance and so other surfaces can dim themselves when we're not
+// fetching.
+export const polling = writable(true)
 
 let timer = null
 
@@ -61,4 +65,13 @@ export function startPolling() {
 export function stopPolling() {
   if (timer) clearInterval(timer)
   timer = null
+}
+
+// Toggle live polling. When resuming we kick off an immediate tick via
+// startPolling so the UI doesn't have to wait a full interval to refresh.
+export function togglePolling() {
+  const next = !get(polling)
+  polling.set(next)
+  if (next) startPolling()
+  else stopPolling()
 }
