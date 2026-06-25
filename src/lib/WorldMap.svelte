@@ -8,8 +8,89 @@
 
   let mapEl
   let map
-  // remote ip -> { marker, sig }
+  // remote ip -> { marker, sig, period, baseRgb }
+  // `period` is the pulse period in ms (0 = static). `baseRgb` is the
+  // section colour pre-parsed once so the animation loop doesn't redo
+  // hex→rgb every frame.
   const markers = new Map()
+
+  const BASE_RADIUS = 5
+  const STATIC_OPACITY = 0.7
+  const PULSE_OPACITY_BASE = 0.55
+  const PULSE_OPACITY_AMP = 0.4
+  // How far toward white the colour lerps at the peak of the pulse. 1.0
+  // would wash out to pure white; 0.65 keeps the section hue readable
+  // while still flashing brightly.
+  const PULSE_LIGHTEN = 0.65
+  const WHITE = [255, 255, 255]
+
+  function hexToRgb(hex) {
+    const h = hex.startsWith('#') ? hex.slice(1) : hex
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ]
+  }
+  function rgbToHex(r, g, b) {
+    const toHex = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+  }
+  function mixRgb(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+  }
+
+  // Total accumulated bytes (orig + repl across the host's current flows) →
+  // pulse period in ms. The endpoint exposes cumulative counters, not a
+  // rate, but flows expire from conntrack as they idle so the standing
+  // total tracks "how loud" the remote currently is.
+  function pulsePeriodFor(bytes) {
+    if (bytes >= 1024 * 1024) return 350      // > 1MB — fastest
+    if (bytes >= 100 * 1024) return 800       // 100KB–1MB — rapid
+    if (bytes >= 1024) return 1800            // 1KB–100KB — slow
+    return 0                                  // < 1KB — none
+  }
+
+  function totalBytesFor(entry) {
+    let sum = 0
+    for (const it of entry.items) {
+      sum += Number(it.conn['orig-bytes'] ?? 0)
+      sum += Number(it.conn['repl-bytes'] ?? 0)
+    }
+    return sum
+  }
+
+  let rafHandle = null
+  function animateMarkers(now) {
+    rafHandle = null
+    let anyPulsing = false
+    for (const m of markers.values()) {
+      if (!m.period) continue
+      anyPulsing = true
+      const phase = (now % m.period) / m.period
+      // Smooth 0→1→0 over the period; cosine gives a soft heartbeat
+      // rather than a triangular snap.
+      const k = 0.5 - 0.5 * Math.cos(2 * Math.PI * phase)
+      const [r, g, b] = mixRgb(m.baseRgb, WHITE, PULSE_LIGHTEN * k)
+      const c = rgbToHex(r, g, b)
+      m.marker.setStyle({
+        color: c,
+        fillColor: c,
+        fillOpacity: PULSE_OPACITY_BASE + PULSE_OPACITY_AMP * k,
+      })
+    }
+    if (anyPulsing) rafHandle = requestAnimationFrame(animateMarkers)
+  }
+
+  function ensureAnimation() {
+    if (rafHandle != null) return
+    for (const m of markers.values()) {
+      if (m.period) {
+        rafHandle = requestAnimationFrame(animateMarkers)
+        return
+      }
+    }
+  }
 
   onMount(() => {
     // preferCanvas: render all circleMarkers into a single <canvas> instead of
@@ -31,6 +112,7 @@
   })
 
   onDestroy(() => {
+    if (rafHandle != null) cancelAnimationFrame(rafHandle)
     if (map) map.remove()
   })
 
@@ -112,12 +194,25 @@
       if (entry.section === 'lan') continue
       const existing = markers.get(ip)
       const sig = signatureFor(entry)
+      const period = pulsePeriodFor(totalBytesFor(entry))
       // `timeout` ticks down every poll, so we need to refresh the popup
       // content even when nothing in the signature changed — but only if
       // the popup is actually open. Closed popups can wait for the next
       // sig-changing event, which keeps the steady-state reconciliation
       // skip cheap.
       const popupOpen = existing?.marker.isPopupOpen() ?? false
+
+      // Pulse period must update every poll regardless of sig (bytes
+      // aren't part of the signature). Dropping to 0 means we need to
+      // park the marker back at its base colour/opacity — the animation
+      // loop won't touch it again to reset it for us.
+      if (existing && existing.period !== period) {
+        existing.period = period
+        if (period === 0) {
+          const base = rgbToHex(...existing.baseRgb)
+          existing.marker.setStyle({ color: base, fillColor: base, fillOpacity: STATIC_OPACITY })
+        }
+      }
       if (existing && existing.sig === sig && !popupOpen) continue
 
       let geo = lookupSync(ip)
@@ -128,16 +223,19 @@
       const html = popupHtml(ip, entry, geo)
       if (existing) {
         if (existing.sig !== sig) {
+          existing.baseRgb = hexToRgb(color)
+          // When pulsing, the animation loop will overwrite this on the
+          // next frame; setting it here keeps non-pulsing markers in sync.
           existing.marker.setStyle({ color, fillColor: color })
           existing.sig = sig
         }
         existing.marker.setPopupContent(html)
       } else {
         const marker = L.circleMarker([geo.lat, geo.lon], {
-          radius: 5,
+          radius: BASE_RADIUS,
           color,
           fillColor: color,
-          fillOpacity: 0.7,
+          fillOpacity: STATIC_OPACITY,
           weight: 1,
         })
           .bindPopup(html, { maxWidth: 360, maxHeight: 320 })
@@ -153,7 +251,7 @@
             if (span) span.textContent = name ?? '(no PTR record)'
           })
         })
-        markers.set(ip, { marker, sig })
+        markers.set(ip, { marker, sig, period, baseRgb: hexToRgb(color) })
       }
     }
 
@@ -163,6 +261,8 @@
         markers.delete(ip)
       }
     }
+
+    ensureAnimation()
   }
 
   $effect(() => {
