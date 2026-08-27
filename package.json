@@ -14,8 +14,10 @@
     "vite": "^5.4.0"
   },
   "dependencies": {
+    "@maplibre/maplibre-gl-leaflet": "^0.1.4",
     "buffer": "^6.0.3",
     "leaflet": "^1.9.4",
+    "maplibre-gl": "^4.7.1",
     "mmdb-lib": "^2.1.0"
   }
 }

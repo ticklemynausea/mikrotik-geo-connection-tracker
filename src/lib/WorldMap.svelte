@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import L from 'leaflet'
+  import 'maplibre-gl/dist/maplibre-gl.css'
+  import '@maplibre/maplibre-gl-leaflet'
   import { lookup, lookupSync } from './geoip.js'
   import { DIRECTION_COLOR } from './connection.js'
   import { visibleGroups } from './groups.js'
@@ -98,14 +100,17 @@
     // magnitude cheaper once there are more than a handful of markers.
     map = L.map(mapEl, { preferCanvas: true, zoomControl: false, minZoom: 2 }).setView([25, 10], 3)
     L.control.zoom({ position: 'bottomright' }).addTo(map)
-    // CartoDB Dark Matter — free, no API key, reads as near-black with muted
-    // landmasses so the coloured markers do the talking. {r} swaps in @2x
-    // tiles on retina displays automatically. noWrap stops the world tiling
-    // horizontally past ±180° so markers don't double up across copies.
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      subdomains: 'abcd',
-      noWrap: true,
+    // CartoDB Dark Matter (vector) — reads as near-black with muted landmasses
+    // so the coloured markers do the talking. Vector tiles render via a
+    // MapLibre GL layer overlaid inside Leaflet, which keeps every marker /
+    // popup / control below working unchanged. CARTO's vector endpoint is
+    // still keyless as of writing; when it starts requiring one, append
+    // `?key=${import.meta.env.VITE_CARTA_API_KEY}` to the style URL.
+    L.maplibreGL({
+      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      // Match the old raster layer's noWrap: keep the world as a single copy
+      // so markers don't ghost across ±180°.
+      renderWorldCopies: false,
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map)
