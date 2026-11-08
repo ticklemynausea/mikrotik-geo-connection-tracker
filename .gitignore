@@ -4,3 +4,4 @@ dist
 .env.local
 public/geoip/*.mmdb
 .DS_Store
+.deploy

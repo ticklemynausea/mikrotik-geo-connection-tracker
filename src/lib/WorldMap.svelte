@@ -108,9 +108,12 @@
     // `?key=${import.meta.env.VITE_CARTA_API_KEY}` to the style URL.
     L.maplibreGL({
       style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-      // Match the old raster layer's noWrap: keep the world as a single copy
-      // so markers don't ghost across ±180°.
-      renderWorldCopies: false,
+      // Leave renderWorldCopies at its default (true). Setting it false makes
+      // MapLibre clamp its own centre to ±180°, and since the GL canvas is
+      // driven by Leaflet's centre (and padded wider than the viewport), at
+      // low zooms that clamp kicks in while panning and the basemap slides
+      // out from under the markers. Markers themselves never wrap — Leaflet
+      // doesn't duplicate vector layers — so only the basemap repeats.
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map)
